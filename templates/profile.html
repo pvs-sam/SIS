@@ -32,9 +32,15 @@
                 <h2 class="profile-student-name">{{ data.personal.Name }}</h2>
                 <div class="mb-2">
                     <span class="profile-enrollment-badge">{{ data.personal.Enrollment_No }}</span>
+                    <span class="badge bg-light text-dark border ms-1">Section {{ data.personal.Section }}</span>
+                    {% if data.ml_risk %}
+                        <span class="badge {% if data.ml_risk.Risk_Band == 'High' %}bg-danger text-white{% elif data.ml_risk.Risk_Band == 'Medium' %}bg-warning text-dark{% else %}bg-success text-white{% endif %} ms-1">
+                            <i class="bi bi-shield-check me-1"></i>Risk: {{ data.ml_risk.Risk_Band }} ({{ (data.ml_risk.Risk_Probability * 100)|round(1) }}%)
+                        </span>
+                    {% endif %}
                 </div>
                 <div class="profile-meta-text">
-                    {{ data.personal.Department }} &bull; Section {{ data.personal.Section }} &bull; Semester {{ data.personal.Semester }}
+                    {{ data.personal.Department }} Department &bull; Semester {{ data.personal.Semester }} &bull; Batch 2023–2027
                 </div>
                 <div class="profile-meta-sub mt-0.5">
                     Academic Year {{ data.personal.Academic_Year }}
@@ -42,6 +48,75 @@
             </div>
         </div>
     </div>
+
+    <!-- ============================================== -->
+    <!-- 2.5 AI EARLY-WARNING RISK CARD (PHASE 6)       -->
+    <!-- ============================================== -->
+    {% if data.ml_risk %}
+    <div class="card border-0 shadow-xs mb-4 {% if data.ml_risk.Risk_Band == 'High' %}border-start border-danger border-4{% elif data.ml_risk.Risk_Band == 'Medium' %}border-start border-warning border-4{% else %}border-start border-success border-4{% endif %}">
+        
+        <!-- Anomaly Detection Warning Banner -->
+        {% if data.ml_risk.Is_Anomaly == 1 %}
+        <div class="alert alert-danger m-3 mb-0 p-2.5 d-flex align-items-center gap-2 border-danger fs-xs" role="alert">
+            <i class="bi bi-exclamation-octagon-fill fs-5 text-danger"></i>
+            <div>
+                <strong>Data Audit Alert — {{ data.ml_risk.Anomaly_Type }}:</strong>
+                {{ data.ml_risk.Anomaly_Reason }}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card-header bg-white py-2.5 border-0 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 text-dark">
+                <i class="bi bi-cpu text-primary me-1"></i> AI Academic Decision Support &amp; Early Warning
+            </h6>
+            <div class="d-flex gap-2">
+                {% if data.ml_risk.Predicted_SGPA %}
+                <span class="badge bg-primary-subtle text-primary border border-primary-subtle fs-xxs">
+                    <i class="bi bi-stars me-1"></i>Projected Sem 5: {{ data.ml_risk.Predicted_SGPA }} SGPA (Grade {{ data.ml_risk.Predicted_Grade }})
+                </span>
+                {% endif %}
+                <span class="badge bg-light text-muted border fs-xxs">Persona: {{ data.ml_risk.Persona }}</span>
+            </div>
+        </div>
+        <div class="card-body p-3 pt-1">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <div class="p-2.5 bg-light rounded border text-center h-100 d-flex flex-column justify-content-center">
+                        <div class="text-muted fs-xxs mb-1">Estimated Risk Probability</div>
+                        <h3 class="fw-bold {% if data.ml_risk.Risk_Band == 'High' %}text-danger{% elif data.ml_risk.Risk_Band == 'Medium' %}text-warning{% else %}text-success{% endif %} mb-1">
+                            {{ (data.ml_risk.Risk_Probability * 100)|round(1) }}%
+                        </h3>
+                        <span class="badge {% if data.ml_risk.Risk_Band == 'High' %}bg-danger text-white{% elif data.ml_risk.Risk_Band == 'Medium' %}bg-warning text-dark{% else %}bg-success text-white{% endif %} py-1">
+                            {{ data.ml_risk.Risk_Band }} Risk Level
+                        </span>
+                        {% if data.ml_risk.Predicted_SGPA %}
+                        <div class="mt-2 text-muted fs-xxs">
+                            Likely Final Grade: <strong class="text-dark font-monospace">{{ data.ml_risk.Predicted_Grade }}</strong> (SGPA ~{{ data.ml_risk.Predicted_SGPA }})
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="fw-semibold text-dark fs-xs mb-1.5"><i class="bi bi-list-check me-1 text-primary"></i>Primary Risk Indicators</div>
+                    <ul class="list-unstyled mb-0 fs-xs text-muted">
+                        {% for r in data.ml_risk.Top_Reasons %}
+                            <li class="mb-1"><i class="bi bi-arrow-right-short text-danger"></i>{{ r }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="col-md-4">
+                    <div class="fw-semibold text-dark fs-xs mb-1.5"><i class="bi bi-lightbulb me-1 text-success"></i>Advisory Recommendations</div>
+                    <ul class="list-unstyled mb-0 fs-xs text-muted">
+                        {% for i in data.ml_risk.Interventions %}
+                            <li class="mb-1"><i class="bi bi-check-circle text-success me-1"></i>{{ i }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- ============================================== -->
     <!-- 3. PERSONAL INFORMATION SECTION                 -->
@@ -210,6 +285,7 @@
     <!-- ============================================== -->
     <!-- 7. FEES & PAYMENTS SECTION                     -->
     <!-- ============================================== -->
+    {% if data.fees %}
     <div class="mb-4">
         <h3 class="profile-section-heading">Fees &amp; Payments</h3>
         <div class="card p-3.5">
@@ -248,6 +324,101 @@
             </div>
         </div>
     </div>
+    {% endif %}
+
+    <!-- ============================================== -->
+    <!-- 8. HISTORICAL TERMS PROGRESSION (D6)           -->
+    <!-- ============================================== -->
+    {% if data.terms_history %}
+    <div class="mb-4">
+        <h3 class="profile-section-heading">Multi-Term Academic Progression (Semesters 1–5)</h3>
+        <div class="card border-0 shadow-xs">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 fs-xs">
+                    <thead class="table-light text-uppercase fs-xxs">
+                        <tr>
+                            <th class="ps-3">Semester</th>
+                            <th>Academic Year</th>
+                            <th>Section</th>
+                            <th>Credits Registered</th>
+                            <th>Term SGPA</th>
+                            <th>Backlogs</th>
+                            <th class="text-end pe-3">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for term in data.terms_history %}
+                        <tr>
+                            <td class="ps-3 font-monospace fw-bold">Semester {{ term.Semester }}</td>
+                            <td>{{ term.Academic_Year }} ({{ term.Term }})</td>
+                            <td><span class="badge bg-light text-dark border">{{ term.Section }}</span></td>
+                            <td class="font-monospace">{{ term.Credits_Registered }}</td>
+                            <td class="font-monospace fw-bold {% if term.SGPA >= 7.5 %}text-success{% elif term.SGPA < 6.0 %}text-danger{% else %}text-primary{% endif %}">
+                                {{ term.SGPA }}
+                            </td>
+                            <td>
+                                {% if term.Backlogs_Incurred > 0 %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">{{ term.Backlogs_Incurred }}</span>
+                                {% else %}
+                                    <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-end pe-3"><span class="badge bg-success-subtle text-success">Completed</span></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================== -->
+    <!-- 9. LIBRARY CIRCULATION RECORDS (D9)            -->
+    <!-- ============================================== -->
+    {% if data.library_history %}
+    <div class="mb-4">
+        <h3 class="profile-section-heading">Library Circulation Activity</h3>
+        <div class="card border-0 shadow-xs">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 fs-xs">
+                    <thead class="table-light text-uppercase fs-xxs">
+                        <tr>
+                            <th class="ps-3">Tx ID</th>
+                            <th>Book Title</th>
+                            <th>Issue Date</th>
+                            <th>Due Date</th>
+                            <th>Return Date</th>
+                            <th class="text-end pe-3">Circulation Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for lib in data.library_history %}
+                        {% if loop.index <= 6 %}
+                        <tr>
+                            <td class="ps-3 font-monospace">{{ lib.Transaction_ID }}</td>
+                            <td class="fw-semibold text-dark">{{ lib.Book_Title }}</td>
+                            <td>{{ lib.Issue_Date }}</td>
+                            <td>{{ lib.Due_Date }}</td>
+                            <td>{{ lib.Return_Date or '—' }}</td>
+                            <td class="text-end pe-3">
+                                {% if lib.Status == 'Overdue' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Overdue</span>
+                                {% elif lib.Status == 'Active' %}
+                                    <span class="badge bg-info-subtle text-info border border-info-subtle">Active</span>
+                                {% else %}
+                                    <span class="badge bg-light text-muted border">Returned</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
 
 </div>
 {% endblock %}

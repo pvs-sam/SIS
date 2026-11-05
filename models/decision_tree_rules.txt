@@ -1,0 +1,46 @@
+|--- internal_marks_avg_pct <= 65.75
+|   |--- prior_sgpa_mean <= 6.12
+|   |   |--- internal_marks_min_pct <= 51.25
+|   |   |   |--- prior_sgpa_trend <= -3.12
+|   |   |   |   |--- class: 0
+|   |   |   |--- prior_sgpa_trend >  -3.12
+|   |   |   |   |--- class: 1
+|   |   |--- internal_marks_min_pct >  51.25
+|   |   |   |--- prior_sgpa_last <= 6.00
+|   |   |   |   |--- class: 0
+|   |   |   |--- prior_sgpa_last >  6.00
+|   |   |   |   |--- class: 1
+|   |--- prior_sgpa_mean >  6.12
+|   |   |--- internal_marks_avg_pct <= 61.25
+|   |   |   |--- prior_sgpa_mean <= 6.78
+|   |   |   |   |--- class: 1
+|   |   |   |--- prior_sgpa_mean >  6.78
+|   |   |   |   |--- class: 0
+|   |   |--- internal_marks_avg_pct >  61.25
+|   |   |   |--- prior_sem_attendance <= 82.37
+|   |   |   |   |--- class: 1
+|   |   |   |--- prior_sem_attendance >  82.37
+|   |   |   |   |--- class: 0
+|--- internal_marks_avg_pct >  65.75
+|   |--- prior_sgpa_mean <= 6.30
+|   |   |--- internal_marks_min_pct <= 51.25
+|   |   |   |--- subjects_below_75 <= 2.50
+|   |   |   |   |--- class: 1
+|   |   |   |--- subjects_below_75 >  2.50
+|   |   |   |   |--- class: 0
+|   |   |--- internal_marks_min_pct >  51.25
+|   |   |   |--- prior_sgpa_last <= 7.35
+|   |   |   |   |--- class: 0
+|   |   |   |--- prior_sgpa_last >  7.35
+|   |   |   |   |--- class: 1
+|   |--- prior_sgpa_mean >  6.30
+|   |   |--- min_subject_attendance <= 57.58
+|   |   |   |--- dept_AIDS <= 0.50
+|   |   |   |   |--- class: 0
+|   |   |   |--- dept_AIDS >  0.50
+|   |   |   |   |--- class: 1
+|   |   |--- min_subject_attendance >  57.58
+|   |   |   |--- internal_marks_min_pct <= 36.25
+|   |   |   |   |--- class: 0
+|   |   |   |--- internal_marks_min_pct >  36.25
+|   |   |   |   |--- class: 0

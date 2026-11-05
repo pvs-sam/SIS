@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Admissions Analytics | IFHE ERP{% endblock %}
+{% block page_title %}Admissions & Intake Analytics{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h4 class="fw-bold mb-1">Admissions & Demographic Intake</h4>
+            <p class="text-muted fs-xs mb-0">Cohort intake demographics, entrance rankings, category distribution, and admission quotas (Batch 2023–2027).</p>
+        </div>
+        <div>
+            <span class="badge bg-primary text-white px-3 py-2 fs-xs">
+                Batch: 2023–2027 · Total Cohort: 1,000 Enrolled
+            </span>
+        </div>
+    </div>
+
+    <!-- Intake Breakdown Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card border-0 shadow-xs p-3">
+                <div class="text-muted fs-xs mb-1">Average 12th / Inter %</div>
+                <h3 class="fw-bold text-dark mb-0">86.2%</h3>
+                <small class="text-success"><i class="bi bi-graph-up me-1"></i>Merit Intake Baseline</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-xs p-3">
+                <div class="text-muted fs-xs mb-1">Median Entrance Rank</div>
+                <h3 class="fw-bold text-dark mb-0">12,840</h3>
+                <small class="text-muted">JEE / State EAMCET</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-xs p-3">
+                <div class="text-muted fs-xs mb-1">Merit Quota Allocation</div>
+                <h3 class="fw-bold text-primary mb-0">60.0%</h3>
+                <small class="text-muted">600 Seats Allocated</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card border-0 shadow-xs p-3">
+                <div class="text-muted fs-xs mb-1">Management / NRI Quota</div>
+                <h3 class="fw-bold text-dark mb-0">25.0%</h3>
+                <small class="text-muted">250 Institutional Seats</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admissions Table -->
+    <div class="card border-0 shadow-xs">
+        <div class="card-header bg-white py-3 border-0">
+            <h6 class="fw-bold mb-0">Student Intake Roster</h6>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 fs-xs">
+                <thead class="table-light text-uppercase fs-xxs">
+                    <tr>
+                        <th class="ps-3">Enrollment No</th>
+                        <th>Entrance Examination</th>
+                        <th>Entrance Rank</th>
+                        <th>Admission Quota</th>
+                        <th>Social Category</th>
+                        <th>12th Grade %</th>
+                        <th class="text-end pe-3">Admission Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in admissions_list %}
+                    <tr>
+                        <td class="ps-3 font-monospace fw-semibold">
+                            <a href="{{ url_for('student_profile', enrollment_no=item.Enrollment_No) }}" class="text-decoration-none text-primary">
+                                {{ item.Enrollment_No }}
+                            </a>
+                        </td>
+                        <td>{{ item.Entrance_Exam }}</td>
+                        <td class="font-monospace fw-bold">{{ "{:,}".format(item.Entrance_Rank) }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ item.Admission_Quota }}</span></td>
+                        <td>{{ item.Category }}</td>
+                        <td class="fw-semibold">{{ item['12th_Percentage'] }}%</td>
+                        <td class="text-end pe-3 font-monospace">{{ item.Admission_Date }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

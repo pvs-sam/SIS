@@ -55,6 +55,17 @@
                                 <i class="bi bi-search"></i> Search Student
                             </a>
                         </li>
+                        {% if session.get('user', {}).get('role') == 'ADMIN' %}
+                        <li class="nav-item mt-1">
+                            <a class="nav-link {% if active_page == 'add_student' %}active{% endif %} d-flex align-items-center gap-2 fw-semibold"
+                               href="{{ url_for('add_student_page') }}"
+                               style="background: linear-gradient(90deg,#2563eb18,#2563eb08); border-left: 3px solid #2563eb; color: #1e40af !important; border-radius: 6px;">
+                                <i class="bi bi-person-plus-fill text-primary"></i>
+                                <span>Add New Student</span>
+                                <span class="badge bg-primary ms-auto" style="font-size:9px;">ADMIN</span>
+                            </a>
+                        </li>
+                        {% endif %}
                     </ul>
 
                     <div class="nav-section-title">Academic Modules</div>
@@ -69,11 +80,55 @@
                                 <i class="bi bi-award"></i> Examination
                             </a>
                         </li>
+                        {% if session.get('user', {}).get('role') != 'FACULTY' %}
                         <li class="nav-item">
                             <a class="nav-link {% if active_page == 'fees' %}active{% endif %}" href="{{ url_for('fees_page') }}">
                                 <i class="bi bi-credit-card"></i> Fees &amp; Payments
                             </a>
                         </li>
+                        {% endif %}
+                    </ul>
+
+                    <div class="nav-section-title">Institutional Modules</div>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'faculty' %}active{% endif %}" href="{{ url_for('faculty_page') }}">
+                                <i class="bi bi-person-video3"></i> Faculty Directory
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'notices' %}active{% endif %}" href="{{ url_for('notices_page') }}">
+                                <i class="bi bi-bell"></i> Circulars &amp; Notices
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'library' %}active{% endif %}" href="{{ url_for('library_page') }}">
+                                <i class="bi bi-book"></i> Library Circulation
+                            </a>
+                        </li>
+                        {% if session.get('user', {}).get('role') != 'FACULTY' %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'admissions' %}active{% endif %}" href="{{ url_for('admissions_page') }}">
+                                <i class="bi bi-mortarboard"></i> Admissions Intake
+                            </a>
+                        </li>
+                        {% endif %}
+                    </ul>
+
+                    <div class="nav-section-title">AI Decision Support</div>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'risk' %}active{% endif %}" href="{{ url_for('risk_page') }}">
+                                <i class="bi bi-shield-exclamation text-danger"></i> At-Risk Radar
+                            </a>
+                        </li>
+                        {% if session.get('user', {}).get('role') != 'FACULTY' %}
+                        <li class="nav-item">
+                            <a class="nav-link {% if active_page == 'ml_performance' %}active{% endif %}" href="{{ url_for('ml_performance_page') }}">
+                                <i class="bi bi-cpu"></i> ML Diagnostics &amp; What-If
+                            </a>
+                        </li>
+                        {% endif %}
                     </ul>
 
                     <div class="nav-section-title">Administration</div>
@@ -96,8 +151,8 @@
             <div class="p-2 border-top bg-light">
                 <div class="d-flex align-items-center justify-content-between px-2 py-1">
                     <div>
-                        <div class="fw-semibold text-dark fs-xs">Admin</div>
-                        <div class="text-muted fs-xs" style="font-size: 10px;">Administrator</div>
+                        <div class="fw-semibold text-dark fs-xs">{{ session.get('user', {}).get('name', 'Admin') }}</div>
+                        <div class="text-muted fs-xs" style="font-size: 10px;">{{ session.get('user', {}).get('title', 'Administrator') }}</div>
                     </div>
                     <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-danger p-1 px-2" title="Logout">
                         <i class="bi bi-box-arrow-right"></i>

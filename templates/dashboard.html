@@ -38,6 +38,11 @@
             <div class="metric-value metric-currency">₹{{ summary.fees.pending }}</div>
             <div class="metric-meta"><span class="metric-warning"><i class="bi bi-exclamation-circle"></i> {{ summary.fees.pending_students }} students</span><span>of ₹{{ summary.fees.total }}</span></div>
         </a>
+        <a class="metric-card" href="{{ url_for('risk_page') }}" style="border-left: 3px solid #dc2626;">
+            <div class="metric-card-top"><span class="metric-label text-danger">At-Risk Students (AI)</span><i class="bi bi-shield-exclamation text-danger"></i></div>
+            <div class="metric-value text-danger">{{ summary.at_risk_count }}</div>
+            <div class="metric-meta"><span class="metric-warning"><i class="bi bi-radar"></i> {{ summary.high_risk_count }} high priority</span><span>Recall ≥ 80%</span></div>
+        </a>
     </section>
 
     <div class="dashboard-columns">

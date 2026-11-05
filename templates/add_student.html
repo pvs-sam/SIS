@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block title %}Add Student | IFHE Hyderabad{% endblock %}
+{% block page_title %}Student Management / Add New Student{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8 col-xl-7">
+
+        <!-- Page Header -->
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <div class="p-3 rounded-3" style="background: linear-gradient(135deg, #2563eb15, #2563eb25);">
+                <i class="bi bi-person-plus-fill text-primary fs-4"></i>
+            </div>
+            <div>
+                <h5 class="fw-bold text-dark mb-0">Add New Student</h5>
+                <div class="text-muted fs-xs">Create a new student record. All fields are required.</div>
+            </div>
+            <a href="{{ url_for('students_page') }}" class="btn btn-sm btn-outline-secondary ms-auto">
+                <i class="bi bi-arrow-left me-1"></i>Back to Students
+            </a>
+        </div>
+
+        <!-- Error Summary -->
+        {% if errors %}
+        <div class="alert alert-danger alert-dismissible fade show py-2 px-3 mb-3 fs-xs" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            <strong>Please fix the following errors:</strong>
+            <ul class="mb-0 mt-1">
+                {% for err in errors %}<li>{{ err }}</li>{% endfor %}
+            </ul>
+            <button type="button" class="btn-close p-2" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+
+        <!-- Form Card -->
+        <div class="card shadow-sm border-0">
+            <div class="card-header py-3 px-4 d-flex align-items-center gap-2"
+                 style="background: linear-gradient(90deg, #1e40af08, #3b82f608);">
+                <i class="bi bi-person-vcard text-primary"></i>
+                <span class="fw-semibold text-dark fs-sm">Student Information Form</span>
+                <span class="badge bg-primary ms-auto">Admin Only</span>
+            </div>
+            <div class="card-body p-4">
+                <form method="POST" action="{{ url_for('add_student_page') }}" novalidate>
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <!-- ─── PERSONAL INFORMATION ─── -->
+                    <h6 class="fw-bold text-primary border-bottom pb-2 mb-3">
+                        <i class="bi bi-person me-1"></i>Personal Information
+                    </h6>
+                    <div class="row g-3 mb-4">
+                        <!-- Full Name -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Full Name <span class="text-danger">*</span></label>
+                            <input type="text" name="name" class="form-control form-control-sm"
+                                   placeholder="e.g. Priya Sharma"
+                                   pattern="[a-zA-Z\s.\-']+"
+                                   title="Only letters, spaces, hyphens, periods"
+                                   value="{{ request.form.get('name', '') }}" required>
+                            <div class="form-text fs-xs text-muted">Letters, spaces, hyphens only — no numbers</div>
+                        </div>
+
+                        <!-- Gender -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Gender <span class="text-danger">*</span></label>
+                            <select name="gender" class="form-select form-select-sm" required>
+                                <option value="">Select gender…</option>
+                                {% for g in ['Male', 'Female', 'Other'] %}
+                                <option value="{{ g }}" {% if request.form.get('gender') == g %}selected{% endif %}>{{ g }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Date of Birth -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Date of Birth <span class="text-danger">*</span></label>
+                            <input type="date" name="date_of_birth" class="form-control form-control-sm"
+                                   min="2000-01-01" max="2008-12-31"
+                                   value="{{ request.form.get('date_of_birth', '') }}" required>
+                            <div class="form-text fs-xs text-muted">Between 2000–2008 (admission age 17–20)</div>
+                        </div>
+
+                        <!-- Phone -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Phone Number <span class="text-danger">*</span></label>
+                            <input type="tel" name="phone" class="form-control form-control-sm"
+                                   placeholder="10-digit mobile"
+                                   pattern="\d{10}" maxlength="10"
+                                   title="Exactly 10 digits — no letters or symbols"
+                                   value="{{ request.form.get('phone', '') }}" required>
+                            <div class="form-text fs-xs text-muted">Exactly 10 digits — no letters</div>
+                        </div>
+
+                        <!-- Email -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Email Address <span class="text-danger">*</span></label>
+                            <input type="email" name="email" class="form-control form-control-sm"
+                                   placeholder="student@example.edu"
+                                   value="{{ request.form.get('email', '') }}" required>
+                        </div>
+
+                        <!-- Address -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Address <span class="text-danger">*</span></label>
+                            <input type="text" name="address" class="form-control form-control-sm"
+                                   placeholder="City, State"
+                                   value="{{ request.form.get('address', '') }}" required>
+                        </div>
+                    </div>
+
+                    <!-- ─── ACADEMIC INFORMATION ─── -->
+                    <h6 class="fw-bold text-primary border-bottom pb-2 mb-3">
+                        <i class="bi bi-mortarboard me-1"></i>Academic Information
+                    </h6>
+                    <div class="row g-3 mb-4">
+                        <!-- Department -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Department <span class="text-danger">*</span></label>
+                            <select name="department" class="form-select form-select-sm" required id="deptSelect">
+                                <option value="">Select department…</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept }}" {% if request.form.get('department','').upper() == dept %}selected{% endif %}>{{ dept }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Section -->
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold fs-xs text-dark">Section <span class="text-danger">*</span></label>
+                            <select name="section_letter" class="form-select form-select-sm" required>
+                                <option value="">Select section…</option>
+                                {% for s in sections %}
+                                <option value="{{ s }}" {% if request.form.get('section_letter','').upper() == s %}selected{% endif %}>{{ s }}</option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text fs-xs text-muted" id="sectionPreview"></div>
+                        </div>
+                    </div>
+
+                    <!-- Section Preview -->
+                    <div class="alert alert-info py-2 px-3 fs-xs mb-4" id="previewBox" style="display:none;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Student will be assigned to <strong id="previewSection">—</strong>, Semester 5 (AY 2025–26).
+                        Enrollment ID will be auto-generated.
+                    </div>
+
+                    <!-- ─── SUBMIT ─── -->
+                    <div class="d-flex gap-2 justify-content-end pt-2 border-top">
+                        <a href="{{ url_for('students_page') }}" class="btn btn-sm btn-outline-secondary px-4">
+                            <i class="bi bi-x me-1"></i>Cancel
+                        </a>
+                        <button type="submit" class="btn btn-sm btn-primary px-4">
+                            <i class="bi bi-person-plus me-1"></i>Add Student
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Info panel -->
+        <div class="card mt-3 border-0 bg-light">
+            <div class="card-body py-2 px-3 fs-xs text-muted">
+                <i class="bi bi-lightbulb text-warning me-1"></i>
+                <strong>Note:</strong> The enrollment ID, batch year (2023–27), and academic year (2025–26) are set automatically.
+                CGPA starts at 0.00 and updates as exam records are added. The new student will appear immediately in All Students and Reports.
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+(function () {
+    const dept = document.getElementById('deptSelect');
+    const secSel = document.querySelector('[name="section_letter"]');
+    const previewBox = document.getElementById('previewBox');
+    const previewSection = document.getElementById('previewSection');
+
+    function updatePreview() {
+        const d = dept.value;
+        const s = secSel.value;
+        if (d && s) {
+            previewSection.textContent = d + '-' + s;
+            previewBox.style.display = 'block';
+        } else {
+            previewBox.style.display = 'none';
+        }
+    }
+    dept.addEventListener('change', updatePreview);
+    secSel.addEventListener('change', updatePreview);
+    updatePreview();
+
+    // Prevent numeric input in name field
+    document.querySelector('[name="name"]').addEventListener('keypress', function (e) {
+        if (/[0-9]/.test(e.key)) { e.preventDefault(); }
+    });
+    // Prevent non-numeric input in phone field
+    document.querySelector('[name="phone"]').addEventListener('keypress', function (e) {
+        if (!/[0-9]/.test(e.key)) { e.preventDefault(); }
+    });
+})();
+</script>
+{% endblock %}
+

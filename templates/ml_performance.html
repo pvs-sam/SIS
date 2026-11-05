@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}ML Diagnostics & What-If | IFHE ERP{% endblock %}
+{% block page_title %}Model Diagnostics &amp; What-If Simulator{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge bg-primary text-white fs-xxs">PHASE 6 AUDIT</span>
+                <span class="text-muted fs-xs">Model Registry &amp; Verification Suite</span>
+            </div>
+            <h4 class="fw-bold mb-1">Model Diagnostics, Fairness &amp; What-If Simulator</h4>
+            <p class="text-muted fs-xs mb-0">Model benchmarks, confusion matrices, calibration curves, permutation importance, and interactive scenario simulation.</p>
+        </div>
+        <div>
+            <a href="{{ url_for('risk_page') }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left me-1"></i> Back to Risk Radar
+            </a>
+        </div>
+    </div>
+
+    <!-- Alert / Model Card Note -->
+    <div class="alert alert-info border-info shadow-xs mb-4 p-3 fs-xs" role="alert">
+        <i class="bi bi-info-circle-fill me-2 text-primary"></i>
+        <strong>Synthetic Demonstration Disclosure:</strong> These models are evaluated against the authoritative synthetic cohort (Batch 2023–27).
+        Metrics confirm that the ensemble recovers simulated behavioral and academic patterns without feature leakage. All predictions are strictly advisory.
+    </div>
+
+    <!-- What-If Simulator Card -->
+    <div class="card border-0 shadow-xs mb-4">
+        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 text-primary"><i class="bi bi-sliders me-2"></i>Interactive What-If Scenario Simulator</h6>
+            <span class="badge bg-light text-muted border fs-xxs">Real-time Inference</span>
+        </div>
+        <div class="card-body p-3">
+            <div class="row g-4 align-items-center">
+                <div class="col-md-7">
+                    <div class="mb-3">
+                        <label class="form-label d-flex justify-content-between fs-xs fw-semibold mb-1">
+                            <span>Attendance Improvement (Δ%)</span>
+                            <span id="attDeltaVal" class="text-primary font-monospace fw-bold">+0%</span>
+                        </label>
+                        <input type="range" class="form-range" id="attendanceSlider" min="-20" max="25" step="1" value="0" oninput="updateSimulator()">
+                        <div class="d-flex justify-content-between text-muted fs-xxs">
+                            <span>-20% Drop</span>
+                            <span>Baseline</span>
+                            <span>+25% Surge</span>
+                        </div>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label d-flex justify-content-between fs-xs fw-semibold mb-1">
+                            <span>Internal Marks Improvement (Δ Marks)</span>
+                            <span id="intDeltaVal" class="text-primary font-monospace fw-bold">+0</span>
+                        </label>
+                        <input type="range" class="form-range" id="internalsSlider" min="-15" max="15" step="1" value="0" oninput="updateSimulator()">
+                        <div class="d-flex justify-content-between text-muted fs-xxs">
+                            <span>-15 Marks</span>
+                            <span>Baseline</span>
+                            <span>+15 Marks</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-5">
+                    <div class="p-3 bg-light rounded text-center border">
+                        <div class="text-muted fs-xs mb-1">Simulated Risk Probability</div>
+                        <h2 id="simProb" class="fw-bold text-dark mb-1">42.5%</h2>
+                        <div class="mb-2">
+                            <span id="simBand" class="badge bg-warning text-dark">Medium Risk</span>
+                        </div>
+                        <div id="simReduction" class="fs-xs text-success fw-semibold">
+                            Probability Reduction: 0.0%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Benchmark Model Comparison Table -->
+    <div class="card border-0 shadow-xs mb-4">
+        <div class="card-header bg-white py-3 border-0">
+            <h6 class="fw-bold mb-0">Model Benchmark Comparison (70/30 Stratified Split)</h6>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 fs-xs">
+                <thead class="table-light text-uppercase fs-xxs">
+                    <tr>
+                        <th class="ps-3">Algorithm</th>
+                        <th>ROC-AUC</th>
+                        <th>PR-AUC</th>
+                        <th>Tuned Threshold</th>
+                        <th>Recall (At-Risk)</th>
+                        <th>Precision</th>
+                        <th>F1 Score</th>
+                        <th class="text-end pe-3">Brier Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for name, m in metrics.model_comparison.items() %}
+                    <tr {% if name == 'Random Forest' %}class="table-primary fw-bold"{% endif %}>
+                        <td class="ps-3">
+                            {{ name }}
+                            {% if name == 'Random Forest' %}
+                                <span class="badge bg-primary text-white ms-1 fs-xxs">Production Champion</span>
+                            {% endif %}
+                        </td>
+                        <td class="font-monospace">{{ m.roc_auc }}</td>
+                        <td class="font-monospace">{{ m.pr_auc }}</td>
+                        <td class="font-monospace">{{ m.tuned_threshold }}</td>
+                        <td class="font-monospace text-success">{{ (m.recall * 100)|round(1) }}%</td>
+                        <td class="font-monospace">{{ (m.precision * 100)|round(1) }}%</td>
+                        <td class="font-monospace">{{ m.f1_score }}</td>
+                        <td class="text-end pe-3 font-monospace">{{ m.brier_score }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <!-- Feature Importance -->
+        <div class="col-md-6">
+            <div class="card border-0 shadow-xs h-100">
+                <div class="card-header bg-white py-3 border-0">
+                    <h6 class="fw-bold mb-0">Global Feature Importance (Permutation)</h6>
+                </div>
+                <div class="card-body p-3 pt-0">
+                    <ul class="list-group list-group-flush fs-xs">
+                        {% for feat, imp in metrics.feature_importance.items() %}
+                        {% if loop.index <= 8 %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                            <span>{{ feat }}</span>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress" style="width: 80px; height: 6px;">
+                                    <div class="progress-bar bg-primary" style="width: {{ (imp * 2000)|round|int }}%"></div>
+                                </div>
+                                <span class="font-monospace fw-bold text-muted">{{ imp }}</span>
+                            </div>
+                        </li>
+                        {% endif %}
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Personas & Anomalies -->
+        <div class="col-md-6">
+            <div class="card border-0 shadow-xs h-100">
+                <div class="card-header bg-white py-3 border-0">
+                    <h6 class="fw-bold mb-0">Student Persona Segmentation (KMeans)</h6>
+                </div>
+                <div class="card-body p-3 pt-0">
+                    <div class="mb-3">
+                        {% for persona, count in metrics.personas.items() %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 fs-xs">
+                            <span class="fw-semibold text-dark">{{ persona }}</span>
+                            <span class="badge bg-light text-dark border">{{ count }} students</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="p-3 bg-light rounded border fs-xs">
+                        <div class="fw-bold text-dark mb-1"><i class="bi bi-shield-check text-success me-1"></i>IsolationForest Anomaly Audit</div>
+                        <div class="text-muted">Flagged <strong>{{ metrics.anomaly_count }}</strong> multivariate behavioral outliers across marks, attendance, and fee payment lags.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anomaly Detection Audit Table (Phase 6 Real-World Problem Solution) -->
+    <div class="card border-0 shadow-xs mb-4">
+        <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
+            <div>
+                <h6 class="fw-bold mb-0 text-danger"><i class="bi bi-exclamation-octagon me-2"></i>Institutional Anomaly Audit &amp; Data Quality Detection</h6>
+                <div class="text-muted fs-xxs">Automated detection of Proxy Attendance, Marks Entry Typos, and Irregular Billing records via Isolation Forest.</div>
+            </div>
+            <span class="badge bg-danger text-white fs-xxs">{{ anomalies_list|length }} Flagged Records</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 fs-xs">
+                <thead class="table-light text-uppercase fs-xxs">
+                    <tr>
+                        <th class="ps-3">Enrollment No</th>
+                        <th>Student Name</th>
+                        <th>Department</th>
+                        <th>Anomaly Classification</th>
+                        <th>Detected Conflict / Root Cause</th>
+                        <th class="text-end pe-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in anomalies_list %}
+                    <tr>
+                        <td class="ps-3 font-monospace fw-bold">
+                            <a href="{{ url_for('student_profile', enrollment_no=item.Enrollment_No) }}" class="text-decoration-none text-primary">
+                                {{ item.Enrollment_No }}
+                            </a>
+                        </td>
+                        <td class="fw-semibold text-dark">{{ item.Name }}</td>
+                        <td><span class="badge bg-light text-dark border">{{ item.Department }}</span></td>
+                        <td>
+                            {% if item.Anomaly_Type == 'Proxy Attendance Suspect' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-person-x me-1"></i>Proxy Attendance</span>
+                            {% elif item.Anomaly_Type == 'Marks Entry Typo Suspect' %}
+                                <span class="badge bg-warning-subtle text-warning border border-warning-subtle"><i class="bi bi-pencil-square me-1"></i>Marks Entry Typo</span>
+                            {% elif item.Anomaly_Type == 'Irregular Fee Record' %}
+                                <span class="badge bg-info-subtle text-info border border-info-subtle"><i class="bi bi-cash-coin me-1"></i>Fee Discrepancy</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Behavioral Outlier</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-muted fs-xxs">{{ item.Anomaly_Reason }}</td>
+                        <td class="text-end pe-3">
+                            <a href="{{ url_for('student_profile', enrollment_no=item.Enrollment_No) }}" class="btn btn-xs btn-outline-danger">Audit Record</a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-muted">No anomalies flagged in current data audit.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function updateSimulator() {
+    const att = parseFloat(document.getElementById('attendanceSlider').value);
+    const intM = parseFloat(document.getElementById('internalsSlider').value);
+    
+    document.getElementById('attDeltaVal').innerText = (att >= 0 ? '+' : '') + att + '%';
+    document.getElementById('intDeltaVal').innerText = (intM >= 0 ? '+' : '') + intM;
+
+    fetch('{{ url_for("api_what_if") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': '{{ csrf_token }}'
+        },
+        body: JSON.stringify({
+            attendance_delta: att,
+            internal_delta: intM
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        document.getElementById('simProb').innerText = data.simulated_pct + '%';
+        const bandEl = document.getElementById('simBand');
+        bandEl.innerText = data.risk_band + ' Risk';
+        if (data.risk_band === 'High') {
+            bandEl.className = 'badge bg-danger text-white';
+        } else if (data.risk_band === 'Medium') {
+            bandEl.className = 'badge bg-warning text-dark';
+        } else {
+            bandEl.className = 'badge bg-success text-white';
+        }
+        document.getElementById('simReduction').innerText = 'Probability Delta: ' + data.prob_reduction + '%';
+    });
+}
+document.addEventListener('DOMContentLoaded', updateSimulator);
+</script>
+{% endblock %}
+

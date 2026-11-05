@@ -1,0 +1,163 @@
+Subject_Code,Subject_Name,Department,Semester,Credits,Type
+CSE-BSC101,Linear Algebra and Calculus,CSE,1,4,Core
+CSE-BSC102,Engineering Physics,CSE,1,4,Core
+CSE-ESC101,Problem Solving and Python Programming,CSE,1,4,Core
+CSE-ESC102,Engineering Graphics and Design,CSE,1,3,Core
+CSE-HSMC101,Communicative English,CSE,1,3,Core
+CSE-ESC103,Physics and Python Laboratory,CSE,1,2,Lab
+CSE-BSC201,Differential Equations and Transform Calculus,CSE,2,4,Core
+CSE-BSC202,Engineering Chemistry,CSE,2,4,Core
+CSE-ESC201,Programming for Problem Solving in C,CSE,2,4,Core
+CSE-ESC202,Basic Electrical and Electronics Engineering,CSE,2,3,Core
+CSE-HSMC202,Universal Human Values and Professional Ethics,CSE,2,3,Core
+CSE-ESC203,Engineering Workshop and C Lab,CSE,2,2,Lab
+ECE-BSC101,Linear Algebra and Calculus,ECE,1,4,Core
+ECE-BSC102,Engineering Physics,ECE,1,4,Core
+ECE-ESC101,Problem Solving and Python Programming,ECE,1,4,Core
+ECE-ESC102,Engineering Graphics and Design,ECE,1,3,Core
+ECE-HSMC101,Communicative English,ECE,1,3,Core
+ECE-ESC103,Physics and Python Laboratory,ECE,1,2,Lab
+ECE-BSC201,Differential Equations and Transform Calculus,ECE,2,4,Core
+ECE-BSC202,Engineering Chemistry,ECE,2,4,Core
+ECE-ESC201,Programming for Problem Solving in C,ECE,2,4,Core
+ECE-ESC202,Basic Electrical and Electronics Engineering,ECE,2,3,Core
+ECE-HSMC202,Universal Human Values and Professional Ethics,ECE,2,3,Core
+ECE-ESC203,Engineering Workshop and C Lab,ECE,2,2,Lab
+EEE-BSC101,Linear Algebra and Calculus,EEE,1,4,Core
+EEE-BSC102,Engineering Physics,EEE,1,4,Core
+EEE-ESC101,Problem Solving and Python Programming,EEE,1,4,Core
+EEE-ESC102,Engineering Graphics and Design,EEE,1,3,Core
+EEE-HSMC101,Communicative English,EEE,1,3,Core
+EEE-ESC103,Physics and Python Laboratory,EEE,1,2,Lab
+EEE-BSC201,Differential Equations and Transform Calculus,EEE,2,4,Core
+EEE-BSC202,Engineering Chemistry,EEE,2,4,Core
+EEE-ESC201,Programming for Problem Solving in C,EEE,2,4,Core
+EEE-ESC202,Basic Electrical and Electronics Engineering,EEE,2,3,Core
+EEE-HSMC202,Universal Human Values and Professional Ethics,EEE,2,3,Core
+EEE-ESC203,Engineering Workshop and C Lab,EEE,2,2,Lab
+IT-BSC101,Linear Algebra and Calculus,IT,1,4,Core
+IT-BSC102,Engineering Physics,IT,1,4,Core
+IT-ESC101,Problem Solving and Python Programming,IT,1,4,Core
+IT-ESC102,Engineering Graphics and Design,IT,1,3,Core
+IT-HSMC101,Communicative English,IT,1,3,Core
+IT-ESC103,Physics and Python Laboratory,IT,1,2,Lab
+IT-BSC201,Differential Equations and Transform Calculus,IT,2,4,Core
+IT-BSC202,Engineering Chemistry,IT,2,4,Core
+IT-ESC201,Programming for Problem Solving in C,IT,2,4,Core
+IT-ESC202,Basic Electrical and Electronics Engineering,IT,2,3,Core
+IT-HSMC202,Universal Human Values and Professional Ethics,IT,2,3,Core
+IT-ESC203,Engineering Workshop and C Lab,IT,2,2,Lab
+AIDS-BSC101,Linear Algebra and Calculus,AIDS,1,4,Core
+AIDS-BSC102,Engineering Physics,AIDS,1,4,Core
+AIDS-ESC101,Problem Solving and Python Programming,AIDS,1,4,Core
+AIDS-ESC102,Engineering Graphics and Design,AIDS,1,3,Core
+AIDS-HSMC101,Communicative English,AIDS,1,3,Core
+AIDS-ESC103,Physics and Python Laboratory,AIDS,1,2,Lab
+AIDS-BSC201,Differential Equations and Transform Calculus,AIDS,2,4,Core
+AIDS-BSC202,Engineering Chemistry,AIDS,2,4,Core
+AIDS-ESC201,Programming for Problem Solving in C,AIDS,2,4,Core
+AIDS-ESC202,Basic Electrical and Electronics Engineering,AIDS,2,3,Core
+AIDS-HSMC202,Universal Human Values and Professional Ethics,AIDS,2,3,Core
+AIDS-ESC203,Engineering Workshop and C Lab,AIDS,2,2,Lab
+AIML-BSC101,Linear Algebra and Calculus,AIML,1,4,Core
+AIML-BSC102,Engineering Physics,AIML,1,4,Core
+AIML-ESC101,Problem Solving and Python Programming,AIML,1,4,Core
+AIML-ESC102,Engineering Graphics and Design,AIML,1,3,Core
+AIML-HSMC101,Communicative English,AIML,1,3,Core
+AIML-ESC103,Physics and Python Laboratory,AIML,1,2,Lab
+AIML-BSC201,Differential Equations and Transform Calculus,AIML,2,4,Core
+AIML-BSC202,Engineering Chemistry,AIML,2,4,Core
+AIML-ESC201,Programming for Problem Solving in C,AIML,2,4,Core
+AIML-ESC202,Basic Electrical and Electronics Engineering,AIML,2,3,Core
+AIML-HSMC202,Universal Human Values and Professional Ethics,AIML,2,3,Core
+AIML-ESC203,Engineering Workshop and C Lab,AIML,2,2,Lab
+CSE-CS301,Data Structures and Algorithms,CSE,3,4,Core
+CSE-CS302,Discrete Mathematical Structures,CSE,3,4,Core
+CSE-CS303,Digital Logic and Computer Organization,CSE,3,4,Core
+CSE-CS304,Object Oriented Programming via Java,CSE,3,3,Core
+CSE-CS305,Data Structures Laboratory,CSE,3,2,Lab
+CSE-CS401,Design and Analysis of Algorithms,CSE,4,4,Core
+CSE-CS402,Operating Systems Principles,CSE,4,4,Core
+CSE-CS403,Database Management Systems,CSE,4,4,Core
+CSE-CS404,Formal Languages and Automata Theory,CSE,4,3,Core
+CSE-CS405,DBMS and OS Laboratory,CSE,4,2,Lab
+CSE-CS501,Data Structures,CSE,5,4,Core
+CSE-CS502,Database Management Systems,CSE,5,4,Core
+CSE-CS503,Operating Systems,CSE,5,4,Core
+CSE-CS504,Computer Networks,CSE,5,4,Core
+CSE-CS505,Software Engineering,CSE,5,4,Core
+ECE-EC301,Electronic Devices and Circuits,ECE,3,4,Core
+ECE-EC302,Signals and Systems,ECE,3,4,Core
+ECE-EC303,Network Theory,ECE,3,4,Core
+ECE-EC304,Digital System Design,ECE,3,3,Core
+ECE-EC305,Analog Electronics Laboratory,ECE,3,2,Lab
+ECE-EC401,Analog Communication Systems,ECE,4,4,Core
+ECE-EC402,Linear Integrated Circuits,ECE,4,4,Core
+ECE-EC403,Electromagnetic Fields and Waves,ECE,4,4,Core
+ECE-EC404,Microprocessors and Microcontrollers,ECE,4,3,Core
+ECE-EC405,Microcontroller Laboratory,ECE,4,2,Lab
+ECE-EC501,Signals and Systems,ECE,5,4,Core
+ECE-EC502,Analog Circuits,ECE,5,4,Core
+ECE-EC503,Digital Electronics,ECE,5,4,Core
+ECE-EC504,Communication Systems,ECE,5,4,Core
+ECE-EC505,Microprocessors,ECE,5,4,Core
+EEE-EE301,Electric Circuit Analysis,EEE,3,4,Core
+EEE-EE302,DC Machines and Transformers,EEE,3,4,Core
+EEE-EE303,Analog Electronics,EEE,3,4,Core
+EEE-EE304,Electromagnetic Fields,EEE,3,3,Core
+EEE-EE305,Electrical Machines Laboratory I,EEE,3,2,Lab
+EEE-EE401,AC Electrical Machines,EEE,4,4,Core
+EEE-EE402,Power Electronics and Drives,EEE,4,4,Core
+EEE-EE403,Digital Electronics and Logic Design,EEE,4,4,Core
+EEE-EE404,Electrical Power Generation and Transmission,EEE,4,3,Core
+EEE-EE405,Power Electronics Laboratory,EEE,4,2,Lab
+EEE-EE501,Circuit Theory,EEE,5,4,Core
+EEE-EE502,Electrical Machines,EEE,5,4,Core
+EEE-EE503,Power Electronics,EEE,5,4,Core
+EEE-EE504,Control Systems,EEE,5,4,Core
+EEE-EE505,Power Systems,EEE,5,4,Core
+IT-IT301,Data Structures and OOP,IT,3,4,Core
+IT-IT302,Computer Organization and Architecture,IT,3,4,Core
+IT-IT303,Discrete Mathematics for IT,IT,3,4,Core
+IT-IT304,Foundations of Web Technologies,IT,3,3,Core
+IT-IT305,Web Programming Laboratory,IT,3,2,Lab
+IT-IT401,Design and Analysis of Algorithms,IT,4,4,Core
+IT-IT402,Relational Database Management Systems,IT,4,4,Core
+IT-IT403,Operating System Concepts,IT,4,4,Core
+IT-IT404,Computer Communication Networks,IT,4,3,Core
+IT-IT405,Database and Networking Lab,IT,4,2,Lab
+IT-IT501,Web Technologies,IT,5,4,Core
+IT-IT502,Cloud Computing,IT,5,4,Core
+IT-IT503,Data Mining,IT,5,4,Core
+IT-IT504,Software Engineering,IT,5,4,Core
+IT-IT505,Data Structures,IT,5,4,Core
+AIDS-AD301,Foundations of Data Science,AIDS,3,4,Core
+AIDS-AD302,Data Structures for AI,AIDS,3,4,Core
+AIDS-AD303,Linear Algebra and Optimization for AI,AIDS,3,4,Core
+AIDS-AD304,Statistical Methods for Data Analysis,AIDS,3,3,Core
+AIDS-AD305,Data Analytics Lab with Python,AIDS,3,2,Lab
+AIDS-AD401,Database Systems and Data Warehousing,AIDS,4,4,Core
+AIDS-AD402,Introduction to Machine Learning,AIDS,4,4,Core
+AIDS-AD403,Design and Analysis of Algorithms,AIDS,4,4,Core
+AIDS-AD404,Exploratory Data Analysis and Visualization,AIDS,4,3,Core
+AIDS-AD405,Machine Learning Lab,AIDS,4,2,Lab
+AIDS-AD501,Python for Data Science,AIDS,5,4,Core
+AIDS-AD502,Machine Learning,AIDS,5,4,Core
+AIDS-AD503,Data Management,AIDS,5,4,Core
+AIDS-AD504,Statistics for AI,AIDS,5,4,Core
+AIDS-AD505,Artificial Intelligence,AIDS,5,4,Core
+AIML-AL301,Mathematical Foundations for Machine Learning,AIML,3,4,Core
+AIML-AL302,Data Structures and Algorithms for AI,AIML,3,4,Core
+AIML-AL303,Logic and Problem Solving in AI,AIML,3,4,Core
+AIML-AL304,Object Oriented Programming for AI,AIML,3,3,Core
+AIML-AL305,AI Programming Laboratory,AIML,3,2,Lab
+AIML-AL401,Machine Learning Fundamentals,AIML,4,4,Core
+AIML-AL402,Computer Vision Principles,AIML,4,4,Core
+AIML-AL403,Natural Language Processing Basics,AIML,4,4,Core
+AIML-AL404,Database Systems for Machine Learning,AIML,4,3,Core
+AIML-AL405,ML and NLP Laboratory,AIML,4,2,Lab
+AIML-AL501,Artificial Intelligence,AIML,5,4,Core
+AIML-AL502,Machine Learning,AIML,5,4,Core
+AIML-AL503,Deep Learning,AIML,5,4,Core
+AIML-AL504,Natural Language Processing,AIML,5,4,Core
+AIML-AL505,Python for Data Science,AIML,5,4,Core

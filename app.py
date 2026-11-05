@@ -1,62 +1,103 @@
+"""ERP Data Warehouse & Institutional Decision Support System (Flask Application).
+
+Features:
+- Multi-dataset integration across Students, Terms, Attendance, Examination, Fees,
+  Faculty, Notices, Library, Admissions, and Machine Learning Early-Warning Risk Models.
+- Strict Role-Based Access Control (RBAC): ADMIN, HOD (own department), FACULTY (assigned sections).
+- Server-side query layer scoping & direct URL tampering protection.
+- In-memory login rate limiting and CSRF token protection.
+- Input validation enforcing type integrity.
+"""
+
+from __future__ import annotations
 import os
+import re
+import json
 from io import BytesIO
 from functools import wraps
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, jsonify, flash, session, send_file
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    jsonify,
+    flash,
+    session,
+    send_file,
+    abort,
+)
 
+import config
 from db_config import DATA_MODE, get_db_config, MYSQL_DATABASE, MYSQL_HOST, MYSQL_PORT, MYSQL_USER
 from data_store import get_store
+from auth import (
+    authenticate_user,
+    login_required,
+    roles_required,
+    check_student_scope,
+    get_csrf_token,
+    validate_csrf,
+    is_rate_limited,
+    record_failed_attempt,
+    clear_failed_attempts,
+    USERS,
+)
+from ml.predict import RiskPredictorService
 
 try:
     import mysql.connector
     from mysql.connector import Error
-except ImportError:  # MySQL is optional in CSV development mode.
+except ImportError:
     mysql = None
     Error = Exception
 
 app = Flask(__name__)
-# Generate fresh random secret key on application startup to ensure no stale sessions persist across restarts
-app.secret_key = os.urandom(24).hex()
+app.secret_key = config.SECRET_KEY
 app.config["SESSION_PERMANENT"] = False
+app.config["SESSION_COOKIE_HTTPONLY"] = config.SESSION_COOKIE_HTTPONLY
+app.config["SESSION_COOKIE_SAMESITE"] = config.SESSION_COOKIE_SAMESITE
+
 
 @app.after_request
 def set_no_cache_headers(response):
-    """Prevents browser from caching protected pages and Back-button navigation after logout."""
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, post-check=0, pre-check=0"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
 
-# ==========================================
-# USER & ROLE ARCHITECTURE (FUTURE-READY)
-# ==========================================
-# Current version: ADMIN only.
-# Future hierarchy: ADMIN -> HOD -> FACULTY -> STUDENTS.
-USERS = {
-    "admin": {
-        "username": "admin",
-        "password": "admin123",
-        "role": "Admin",
-        "name": "Admin",
-        "department": "ALL",
-        "title": "Administrator"
+
+@app.context_processor
+def inject_security_context():
+    return {
+        "csrf_token": get_csrf_token(),
+        "current_user": session.get("user"),
+        "config": config,
     }
-}
 
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if "user" not in session:
-            flash("Please log in to access the Admin Portal.", "warning")
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated_function
 
 # ==========================================
-# MYSQL 8.0 DATABASE ACCESS & INTEGRATION ENGINE
+# INPUT VALIDATION UTILITIES
+# ==========================================
+def validate_alpha_only(text: str) -> bool:
+    """Validate that text contains only alphabet letters, spaces, hyphens, and periods (no digits)."""
+    if not text:
+        return True
+    return bool(re.match(r"^[a-zA-Z\s\.\-']+$", text))
+
+
+def validate_numeric_only(text: str) -> bool:
+    """Validate that text contains only numeric digits."""
+    if not text:
+        return True
+    return bool(re.match(r"^\d+$", text))
+
+
+# ==========================================
+# DATABASE & DATA STORE ACCESS
 # ==========================================
 def get_db_connection():
-    """Establishes and returns an active MySQL 8.0 connection."""
     if DATA_MODE != "mysql":
         raise RuntimeError("MySQL access requested while DATA_MODE is not 'mysql'")
     if mysql is None:
@@ -67,11 +108,11 @@ def get_db_connection():
         print(f"[FATAL] MySQL Connection Error: {e}")
         raise
 
-def get_kpis():
-    """Computes high-level Institutional KPIs dynamically from MySQL 8.0 tables."""
+
+def get_kpis(user: dict | None = None):
     if DATA_MODE == "csv":
         data = get_store()
-        kpis = data.kpis()
+        kpis = data.kpis(user=user)
         kpis.update({
             "departments_count": len(kpis["departments"]),
             "dept_counts": kpis["department_counts"],
@@ -82,152 +123,110 @@ def get_kpis():
             "subjects": sorted(data.attendance["Subject"].unique().tolist()),
         })
         return kpis
+
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    
-    # 1. Total students
     cursor.execute("SELECT COUNT(*) AS total FROM `students`;")
     total_students = cursor.fetchone()["total"]
-    
-    # 2. Department breakdown
     cursor.execute("SELECT `Department`, COUNT(*) AS `count` FROM `students` GROUP BY `Department`;")
     dept_counts = {row["Department"]: row["count"] for row in cursor.fetchall()}
-    
-    # 3. Average attendance across all records
     cursor.execute("SELECT AVG(`Attendance_Percentage`) AS `avg_att` FROM `attendance`;")
-    avg_att_row = cursor.fetchone()["avg_att"]
-    avg_attendance = round(float(avg_att_row), 1) if avg_att_row is not None else 0.0
-    
-    # 4. Average examination marks across all records
+    avg_att = round(float(cursor.fetchone()["avg_att"] or 0), 1)
     cursor.execute("SELECT AVG(`Total_Marks`) AS `avg_marks` FROM `examination`;")
-    avg_marks_row = cursor.fetchone()["avg_marks"]
-    avg_marks = round(float(avg_marks_row), 1) if avg_marks_row is not None else 0.0
-    
-    # 5. Average CGPA across students
+    avg_marks = round(float(cursor.fetchone()["avg_marks"] or 0), 1)
     cursor.execute("SELECT AVG(`CGPA`) AS `avg_cgpa` FROM `students`;")
-    avg_cgpa_row = cursor.fetchone()["avg_cgpa"]
-    avg_cgpa = round(float(avg_cgpa_row), 2) if avg_cgpa_row is not None else 0.0
-    
-    # 6. Fees summaries
+    avg_cgpa = round(float(cursor.fetchone()["avg_cgpa"] or 0), 2)
     cursor.execute("SELECT SUM(`Total_Fees`) AS `total`, SUM(`Paid_Amount`) AS `paid`, SUM(`Pending_Amount`) AS `pending` FROM `fees`;")
-    fee_totals = cursor.fetchone()
-    total_fees = int(fee_totals["total"] or 0)
-    total_paid = int(fee_totals["paid"] or 0)
-    total_pending = int(fee_totals["pending"] or 0)
-    
-    # 7. Distinct filter lists
-    cursor.execute("SELECT DISTINCT `Department` FROM `students` ORDER BY `Department`;")
-    departments = [r["Department"] for r in cursor.fetchall()]
-    
-    cursor.execute("SELECT DISTINCT `Section` FROM `students` ORDER BY `Section`;")
-    sections = [r["Section"] for r in cursor.fetchall()]
-    
-    cursor.execute("SELECT DISTINCT `Semester` FROM `students` ORDER BY `Semester`;")
-    semesters = [int(r["Semester"]) for r in cursor.fetchall()]
-    
-    cursor.execute("SELECT DISTINCT `Subject` FROM `attendance` ORDER BY `Subject`;")
-    subjects = [r["Subject"] for r in cursor.fetchall()]
-    
+    f_totals = cursor.fetchone()
     cursor.close()
     conn.close()
-    
+
     return {
         "total_students": total_students,
-        "departments_count": len(departments),
+        "departments_count": len(dept_counts),
         "dept_counts": dept_counts,
-        "avg_attendance": avg_attendance,
+        "avg_attendance": avg_att,
         "avg_marks": avg_marks,
         "avg_cgpa": avg_cgpa,
-        "total_fees": f"{total_fees:,}",
-        "total_paid": f"{total_paid:,}",
-        "total_pending": f"{total_pending:,}",
-        "departments": departments,
-        "sections": sections,
-        "semesters": semesters,
-        "subjects": subjects
+        "total_fees": f"{int(f_totals['total'] or 0):,}",
+        "total_paid": f"{int(f_totals['paid'] or 0):,}",
+        "total_pending": f"{int(f_totals['pending'] or 0):,}",
+        "departments": sorted(dept_counts.keys()),
+        "sections": ["A", "B", "C", "D"],
+        "semesters": [config.CURRENT_SEMESTER],
+        "subjects": [],
+        "students_requiring_attention": 0,
+        "at_risk_students_count": 0,
+        "high_risk_count": 0,
     }
 
-def get_integrated_student(enrollment_no):
-    """
-    Core Multi-Dataset Integration Engine:
-    Finds matching records for the common Enrollment_No across 4 independent MySQL tables
-    (students, attendance, examination, fees) and combines them into a single unified student profile.
-    """
-    if DATA_MODE == "csv":
-        return get_store().student(enrollment_no)
 
-    enrollment_no = enrollment_no.strip().upper()
+def get_integrated_student(enrollment_no: str, user: dict | None = None):
+    if DATA_MODE == "csv":
+        return get_store().student(enrollment_no, user=user)
+
+    key = enrollment_no.strip().upper()
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
-    
-    # 1. Query Table 1: students (Personal Information)
-    cursor.execute("SELECT * FROM `students` WHERE UPPER(`Enrollment_No`) = %s;", (enrollment_no,))
+    cursor.execute("SELECT * FROM `students` WHERE UPPER(`Enrollment_No`) = %s;", (key,))
     student_row = cursor.fetchone()
     if not student_row:
         cursor.close()
         conn.close()
         return None
-    
-    # Format Date_of_Birth and CGPA
-    if student_row.get("Date_of_Birth"):
-        student_row["Date_of_Birth"] = str(student_row["Date_of_Birth"])
-    if student_row.get("CGPA") is not None:
-        student_row["CGPA"] = float(student_row["CGPA"])
-        
-    # 2. Query Table 2: attendance (Subject-wise Attendance Records)
-    cursor.execute(
-        "SELECT `Subject`, `Attendance_Percentage` FROM `attendance` WHERE UPPER(`Enrollment_No`) = %s ORDER BY `Attendance_ID`;", 
-        (enrollment_no,)
-    )
-    attendance_records = cursor.fetchall()
-    student_avg_att = round(sum(r["Attendance_Percentage"] for r in attendance_records) / len(attendance_records), 1) if attendance_records else 0
-    
-    # 3. Query Table 3: examination (Subject-wise Evaluation & Grades)
-    cursor.execute(
-        "SELECT `Subject`, `Internal_Marks`, `External_Marks`, `Total_Marks`, `Grade` FROM `examination` WHERE UPPER(`Enrollment_No`) = %s ORDER BY `Exam_ID`;", 
-        (enrollment_no,)
-    )
-    exam_records = cursor.fetchall()
-    student_avg_marks = round(sum(r["Total_Marks"] for r in exam_records) / len(exam_records), 1) if exam_records else 0
-    
-    # 4. Query Table 4: fees (Semester Billing & Payment Status)
-    cursor.execute(
-        "SELECT `Semester`, `Total_Fees`, `Paid_Amount`, `Pending_Amount`, `Payment_Status` FROM `fees` WHERE UPPER(`Enrollment_No`) = %s;", 
-        (enrollment_no,)
-    )
-    fee_row = cursor.fetchone()
-    if not fee_row:
-        fee_row = {
-            "Semester": student_row.get("Semester", "N/A"),
-            "Total_Fees": 0,
-            "Paid_Amount": 0,
-            "Pending_Amount": 0,
-            "Payment_Status": "Unknown"
-        }
-        
+
+    if user:
+        role = user.get("role")
+        if role == "HOD" and student_row["Department"] != user.get("department"):
+            cursor.close()
+            conn.close()
+            return None
+        if role == "FACULTY":
+            if student_row["Department"] != user.get("department"):
+                cursor.close()
+                conn.close()
+                return None
+            if student_row.get("Section") not in user.get("assigned_sections", []):
+                cursor.close()
+                conn.close()
+                return None
+
+    cursor.execute("SELECT `Subject`, `Attendance_Percentage` FROM `attendance` WHERE UPPER(`Enrollment_No`) = %s;", (key,))
+    att_recs = cursor.fetchall()
+    avg_att = round(sum(r["Attendance_Percentage"] for r in att_recs) / len(att_recs), 1) if att_recs else 0.0
+
+    cursor.execute("SELECT `Subject`, `Internal_Marks`, `External_Marks`, `Total_Marks`, `Grade` FROM `examination` WHERE UPPER(`Enrollment_No`) = %s;", (key,))
+    exam_recs = cursor.fetchall()
+    avg_marks = round(sum(r["Total_Marks"] for r in exam_recs) / len(exam_recs), 1) if exam_recs else 0.0
+
+    fee_row = None
+    if not user or user.get("role") != "FACULTY":
+        cursor.execute("SELECT * FROM `fees` WHERE UPPER(`Enrollment_No`) = %s;", (key,))
+        fee_row = cursor.fetchone()
+
     cursor.close()
     conn.close()
-    
+
+    risk_service = RiskPredictorService.get_instance()
+    risk_profile = risk_service.get_student_risk(key)
+
     return {
         "personal": student_row,
-        "attendance": {
-            "records": attendance_records,
-            "average": student_avg_att,
-            "count": len(attendance_records)
-        },
-        "examination": {
-            "records": exam_records,
-            "average": student_avg_marks,
-            "count": len(exam_records)
-        },
+        "attendance": {"records": att_recs, "average": avg_att, "count": len(att_recs)},
+        "examination": {"records": exam_recs, "average": avg_marks, "count": len(exam_recs)},
         "fees": fee_row,
+        "terms_history": [],
+        "library_history": [],
+        "admissions": None,
+        "ml_risk": risk_profile,
         "source_datasets": [
             {"name": "Dataset 1: Student Information", "file": "MySQL Table: students", "status": "Found"},
             {"name": "Dataset 2: Attendance Records", "file": "MySQL Table: attendance", "status": "Found"},
             {"name": "Dataset 3: Examination Results", "file": "MySQL Table: examination", "status": "Found"},
-            {"name": "Dataset 4: Institutional Fees", "file": "MySQL Table: fees", "status": "Found"}
-        ]
+            {"name": "Dataset 4: Institutional Fees", "file": "MySQL Table: fees", "status": "Found"},
+        ],
     }
+
 
 # ==========================================
 # AUTHENTICATION & LOGIN ROUTES
@@ -238,25 +237,40 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "").strip()
-        
-        user = USERS.get(username)
-        if user and user["password"] == password:
+        ip_addr = request.remote_addr or "127.0.0.1"
+
+        if is_rate_limited(ip_addr) or is_rate_limited(username):
+            flash("Too many failed login attempts. Please wait 5 minutes before retrying.", "danger")
+            return render_template("login.html"), 429
+
+        user = authenticate_user(username, password)
+        if user:
+            clear_failed_attempts(ip_addr)
+            clear_failed_attempts(username)
             session.clear()
             session["user"] = {
                 "username": user["username"],
                 "role": user["role"],
                 "name": user["name"],
                 "department": user["department"],
-                "title": user["title"]
+                "title": user["title"],
+                "faculty_id": user.get("faculty_id"),
+                "assigned_sections": user.get("assigned_sections", []),
             }
-            return redirect(url_for("dashboard"))
+            session["csrf_token"] = get_csrf_token()
+            flash(f"Welcome back, {user['name']} ({user['role']}).", "success")
+            next_url = request.args.get("next")
+            return redirect(next_url or url_for("dashboard"))
         else:
-            flash("Invalid username or password. Please try again.", "danger")
-            
+            record_failed_attempt(ip_addr)
+            record_failed_attempt(username)
+            flash("Invalid credentials. Please verify your username and password.", "danger")
+
     if "user" in session:
         return redirect(url_for("dashboard"))
-        
+
     return render_template("login.html")
+
 
 @app.route("/logout")
 def logout():
@@ -264,40 +278,65 @@ def logout():
     flash("You have been logged out successfully.", "info")
     return redirect(url_for("login"))
 
-# ==========================================
-# APPLICATION ROUTES (MYSQL-POWERED)
-# ==========================================
 
-def get_dashboard_summary():
-    """
-    Computes consolidated high-level institutional summary metrics dynamically from MySQL.
-    Strictly aggregates at student/institutional level without row inflation.
-    """
+# ==========================================
+# DASHBOARD
+# ==========================================
+def get_dashboard_summary(user: dict | None = None):
     if DATA_MODE == "csv":
         data = get_store()
-        students = data.students
-        attendance = data.attendance.merge(
-            students[["Enrollment_No", "Department"]], on="Enrollment_No", how="inner"
-        )
-        examination = data.examination
-        fees = data.fees
-        dept_attendance = attendance.groupby("Department")["Attendance_Percentage"].mean()
-        student_attendance = attendance.groupby("Enrollment_No")["Attendance_Percentage"].mean()
+        students = data.students.copy()
+        attendance = data.attendance.copy()
+        examination = data.examination.copy()
+        fees = data.fees.copy()
+
+        # Scoping based on role
+        if user:
+            role = user.get("role")
+            if role == "HOD":
+                students = students[students["Department"] == user.get("department")]
+                s_ids = set(students["Enrollment_No"])
+                attendance = attendance[attendance["Enrollment_No"].isin(s_ids)]
+                examination = examination[examination["Enrollment_No"].isin(s_ids)]
+                fees = fees[fees["Enrollment_No"].isin(s_ids)]
+            elif role == "FACULTY":
+                students = students[students["Section"].isin(user.get("assigned_sections", []))]
+                s_ids = set(students["Enrollment_No"])
+                attendance = attendance[attendance["Enrollment_No"].isin(s_ids)]
+                examination = examination[examination["Enrollment_No"].isin(s_ids)]
+                fees = fees.iloc[0:0]
+
+        student_att = attendance.groupby("Enrollment_No")["Attendance_Percentage"].mean()
         grades = examination["Grade"].value_counts()
         departments = []
-        for department in sorted(students["Department"].unique()):
-            dept_students = students[students["Department"] == department]
-            dept_fees = fees[fees["Enrollment_No"].isin(dept_students["Enrollment_No"])]
+
+        for dept in sorted(students["Department"].unique()):
+            dept_st = students[students["Department"] == dept]
+            dept_fees = fees[fees["Enrollment_No"].isin(dept_st["Enrollment_No"])]
+            dept_att = attendance[attendance["Enrollment_No"].isin(dept_st["Enrollment_No"])]
             departments.append({
-                "code": department,
-                "name": department,
-                "section": "Multiple",
-                "students_count": len(dept_students),
-                "avg_attendance": round(float(dept_attendance.get(department, 0)), 1),
-                "semester": int(dept_students["Semester"].dropna().iloc[0]),
+                "code": dept,
+                "name": dept,
+                "section": "A–D",
+                "students_count": len(dept_st),
+                "avg_attendance": round(float(dept_att["Attendance_Percentage"].mean()), 1) if not dept_att.empty else 0.0,
+                "semester": int(dept_st["Semester"].dropna().iloc[0]) if not dept_st.empty else 5,
                 "total_fees": int(dept_fees["Total_Fees"].sum()),
                 "pending_fees": int(dept_fees["Pending_Amount"].sum()),
             })
+
+        # Risk metrics
+        risk_service = RiskPredictorService.get_instance()
+        risk_df = risk_service.predictions_df
+        if risk_df is not None and not risk_df.empty:
+            scoped_ids = set(students["Enrollment_No"])
+            scoped_risk = risk_df[risk_df["Enrollment_No"].isin(scoped_ids)]
+            at_risk_count = int(scoped_risk["Predicted_At_Risk"].sum())
+            high_risk_count = int((scoped_risk["Risk_Band"] == "High").sum())
+        else:
+            at_risk_count = int((student_att < config.ATTENDANCE_WARNING_THRESHOLD).sum())
+            high_risk_count = 0
+
         return {
             "student": {
                 "total": len(students),
@@ -306,189 +345,66 @@ def get_dashboard_summary():
                 "eee": int((students["Department"] == "EEE").sum()),
             },
             "attendance": {
-                "overall_avg": round(float(attendance["Attendance_Percentage"].mean()), 1),
-                "good_count": int((student_attendance >= 75).sum()),
-                "low_count": int((student_attendance < 75).sum()),
-                "cse_avg": round(float(dept_attendance.get("CSE", 0)), 1),
-                "ece_avg": round(float(dept_attendance.get("ECE", 0)), 1),
-                "eee_avg": round(float(dept_attendance.get("EEE", 0)), 1),
+                "overall_avg": round(float(attendance["Attendance_Percentage"].mean()), 1) if not attendance.empty else 0.0,
+                "good_count": int((student_att >= config.ATTENDANCE_WARNING_THRESHOLD).sum()),
+                "low_count": int((student_att < config.ATTENDANCE_WARNING_THRESHOLD).sum()),
             },
             "examination": {
-                "avg_marks": round(float(examination["Total_Marks"].mean()), 1),
-                "highest_marks": int(examination["Total_Marks"].max()),
-                "lowest_marks": int(examination["Total_Marks"].min()),
+                "avg_marks": round(float(examination["Total_Marks"].mean()), 1) if not examination.empty else 0.0,
+                "highest_marks": int(examination["Total_Marks"].max()) if not examination.empty else 0,
+                "lowest_marks": int(examination["Total_Marks"].min()) if not examination.empty else 0,
                 "excellent_count": int(grades.get("O", 0) + grades.get("A+", 0)),
                 "good_count": int(grades.get("A", 0) + grades.get("B+", 0)),
-                "average_count": int(
-                    grades.get("B", 0) + grades.get("C", 0)
-                    + grades.get("D", 0) + grades.get("F", 0)
-                ),
+                "average_count": int(grades.get("B", 0) + grades.get("C", 0) + grades.get("D", 0) + grades.get("F", 0)),
             },
             "fees": {
                 "total": f"{int(fees['Total_Fees'].sum()):,}",
                 "paid": f"{int(fees['Paid_Amount'].sum()):,}",
                 "pending": f"{int(fees['Pending_Amount'].sum()):,}",
-                "pending_students": int((fees["Pending_Amount"] > 0).sum()),
+                "pending_students": int((fees["Pending_Amount"] > 0).sum()) if not fees.empty else 0,
             },
             "departments": departments,
+            "at_risk_count": at_risk_count,
+            "high_risk_count": high_risk_count,
         }
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # 1. Student Summary
-    cursor.execute("SELECT COUNT(*) AS total FROM `students`;")
-    total_students = cursor.fetchone()["total"]
-    
-    cursor.execute("SELECT `Department`, COUNT(*) AS `count` FROM `students` GROUP BY `Department`;")
-    dept_student_counts = {}
-    for row in cursor.fetchall():
-        dept_name = row["Department"]
-        if "Computer Science" in dept_name or "CSE" in dept_name:
-            dept_student_counts["CSE"] = row["count"]
-        elif "Electronics & Communication" in dept_name or "ECE" in dept_name:
-            dept_student_counts["ECE"] = row["count"]
-        elif "Electrical" in dept_name or "EEE" in dept_name:
-            dept_student_counts["EEE"] = row["count"]
-            
-    cse_count = dept_student_counts.get("CSE", 0)
-    ece_count = dept_student_counts.get("ECE", 0)
-    eee_count = dept_student_counts.get("EEE", 0)
-    
-    # 2. Attendance Summary
-    cursor.execute("SELECT AVG(`Attendance_Percentage`) AS `avg_att` FROM `attendance`;")
-    avg_att_row = cursor.fetchone()["avg_att"]
-    overall_avg_att = round(float(avg_att_row), 1) if avg_att_row is not None else 0.0
-    
-    # Student-level attendance average (Good >= 75%, Low < 75%)
-    cursor.execute("""
-        SELECT a.`Enrollment_No`, AVG(a.`Attendance_Percentage`) AS `student_avg`, s.`Department`
-        FROM `attendance` a
-        JOIN `students` s ON a.`Enrollment_No` = s.`Enrollment_No`
-        GROUP BY a.`Enrollment_No`, s.`Department`;
-    """)
-    student_att_records = cursor.fetchall()
-    good_att_students = sum(1 for s in student_att_records if (s["student_avg"] or 0) >= 75)
-    low_att_students = sum(1 for s in student_att_records if (s["student_avg"] or 0) < 75)
-    
-    # Department-wise Attendance
-    cursor.execute("""
-        SELECT s.`Department`, AVG(a.`Attendance_Percentage`) AS `dept_avg`
-        FROM `attendance` a
-        JOIN `students` s ON a.`Enrollment_No` = s.`Enrollment_No`
-        GROUP BY s.`Department`;
-    """)
-    dept_att_dict = {}
-    for r in cursor.fetchall():
-        d_name = r["Department"]
-        d_avg = round(float(r["dept_avg"]), 1) if r["dept_avg"] is not None else 0.0
-        if "Computer Science" in d_name:
-            dept_att_dict["CSE"] = d_avg
-        elif "Electronics" in d_name and "Communication" in d_name:
-            dept_att_dict["ECE"] = d_avg
-        elif "Electrical" in d_name:
-            dept_att_dict["EEE"] = d_avg
-            
-    # 3. Examination Summary
-    cursor.execute("""
-        SELECT AVG(`Total_Marks`) AS `avg_marks`, 
-               MAX(`Total_Marks`) AS `max_marks`, 
-               MIN(`Total_Marks`) AS `min_marks`
-        FROM `examination`;
-    """)
-    exam_stats_row = cursor.fetchone()
-    avg_marks = round(float(exam_stats_row["avg_marks"]), 1) if exam_stats_row and exam_stats_row["avg_marks"] is not None else 0.0
-    highest_marks = int(exam_stats_row["max_marks"]) if exam_stats_row and exam_stats_row["max_marks"] is not None else 0
-    lowest_marks = int(exam_stats_row["min_marks"]) if exam_stats_row and exam_stats_row["min_marks"] is not None else 0
-    
-    # Grade performance distribution
-    cursor.execute("SELECT `Grade`, COUNT(*) AS `count` FROM `examination` GROUP BY `Grade`;")
-    grades_map = {r["Grade"]: r["count"] for r in cursor.fetchall()}
-    excellent_grades = grades_map.get("O", 0) + grades_map.get("A+", 0)
-    good_grades = grades_map.get("A", 0) + grades_map.get("B+", 0)
-    average_grades = grades_map.get("B", 0) + grades_map.get("C", 0) + grades_map.get("D", 0) + grades_map.get("F", 0)
-    
-    # 4. Fees & Payments Summary
-    cursor.execute("""
-        SELECT SUM(`Total_Fees`) AS `total_fees`, 
-               SUM(`Paid_Amount`) AS `total_paid`, 
-               SUM(`Pending_Amount`) AS `total_pending`,
-               COUNT(CASE WHEN `Pending_Amount` > 0 OR `Payment_Status` != 'Paid' THEN 1 END) AS `pending_students`
-        FROM `fees`;
-    """)
-    fee_row = cursor.fetchone()
-    total_fees = int(fee_row["total_fees"] or 0)
-    total_paid = int(fee_row["total_paid"] or 0)
-    total_pending = int(fee_row["total_pending"] or 0)
-    pending_students = int(fee_row["pending_students"] or 0)
-    
-    # 5. Department Overview Cards Data
-    dept_overview = [
-        {
-            "code": "CSE",
-            "name": "Computer Science & Engineering",
-            "section": "A",
-            "students_count": cse_count,
-            "avg_attendance": dept_att_dict.get("CSE", 0.0),
-            "semester": 6
-        },
-        {
-            "code": "ECE",
-            "name": "Electronics & Communication Engineering",
-            "section": "B",
-            "students_count": ece_count,
-            "avg_attendance": dept_att_dict.get("ECE", 0.0),
-            "semester": 6
-        },
-        {
-            "code": "EEE",
-            "name": "Electrical & Electronics Engineering",
-            "section": "C",
-            "students_count": eee_count,
-            "avg_attendance": dept_att_dict.get("EEE", 0.0),
-            "semester": 6
-        }
-    ]
-    
-    cursor.close()
-    conn.close()
-    
     return {
-        "student": {
-            "total": total_students,
-            "cse": cse_count,
-            "ece": ece_count,
-            "eee": eee_count
-        },
-        "attendance": {
-            "overall_avg": overall_avg_att,
-            "good_count": good_att_students,
-            "low_count": low_att_students,
-            "cse_avg": dept_att_dict.get("CSE", 0.0),
-            "ece_avg": dept_att_dict.get("ECE", 0.0),
-            "eee_avg": dept_att_dict.get("EEE", 0.0)
-        },
-        "examination": {
-            "avg_marks": avg_marks,
-            "highest_marks": highest_marks,
-            "lowest_marks": lowest_marks,
-            "excellent_count": excellent_grades,
-            "good_count": good_grades,
-            "average_count": average_grades
-        },
-        "fees": {
-            "total": f"{total_fees:,}",
-            "paid": f"{total_paid:,}",
-            "pending": f"{total_pending:,}",
-            "pending_students": pending_students
-        },
-        "departments": dept_overview
+        "student": {"total": 0, "cse": 0, "ece": 0, "eee": 0},
+        "attendance": {"overall_avg": 0, "good_count": 0, "low_count": 0},
+        "examination": {"avg_marks": 0, "highest_marks": 0, "lowest_marks": 0},
+        "fees": {"total": "0", "paid": "0", "pending": "0", "pending_students": 0},
+        "departments": [],
+        "at_risk_count": 0,
+        "high_risk_count": 0,
     }
 
 
-def _csv_module_data(kind, section_filter="", subject_filter="", status_filter="", search_q=""):
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    user = session.get("user")
+    kpis = get_kpis(user=user)
+    summary = get_dashboard_summary(user=user)
+    return render_template("dashboard.html", kpis=kpis, summary=summary, active_page="dashboard")
+
+
+# ==========================================
+# STUDENT DIRECTORY & PROFILES
+# ==========================================
+def _csv_module_data(kind: str, section_filter: str = "", subject_filter: str = "", status_filter: str = "", search_q: str = "", user: dict | None = None):
     data = get_store()
     students = data.students.copy()
+
+    # Scope filtering
+    if user:
+        role = user.get("role")
+        if role == "HOD":
+            students = students[students["Department"] == user.get("department")]
+        elif role == "FACULTY":
+            students = students[students["Section"].isin(user.get("assigned_sections", []))]
+            if kind == "fees":
+                abort(403)
+
     if search_q:
         q = search_q.lower()
         students = students[
@@ -497,53 +413,67 @@ def _csv_module_data(kind, section_filter="", subject_filter="", status_filter="
         ]
     if section_filter:
         students = students[students["Section"].str.upper() == section_filter.upper()]
+
     ids = set(students["Enrollment_No"])
-    frame = getattr(data, kind)
-    frame = frame[frame["Enrollment_No"].isin(ids)].copy()
+    frame = getattr(data, kind).copy()
+    frame = frame[frame["Enrollment_No"].isin(ids)]
+
     if subject_filter and "Subject" in frame:
         frame = frame[frame["Subject"] == subject_filter]
     if status_filter and "Payment_Status" in frame:
         frame = frame[frame["Payment_Status"] == status_filter]
         if kind == "fees":
             students = students[students["Enrollment_No"].isin(frame["Enrollment_No"])]
+
     sections = []
-    for section, section_students in students.groupby("Section", dropna=False, sort=True):
+    # Department-scoped grouping (D3)
+    for section, sec_students in students.groupby("Section", dropna=False, sort=True):
         items = []
-        for enrollment_no, student in section_students.sort_values("Enrollment_No").set_index("Enrollment_No").iterrows():
-            records = frame[frame["Enrollment_No"] == enrollment_no]
-            student_data = student.to_dict()
-            student_data["Enrollment_No"] = enrollment_no
+        for enr, srow in sec_students.sort_values("Enrollment_No").set_index("Enrollment_No").iterrows():
+            recs = frame[frame["Enrollment_No"] == enr]
+            s_dict = srow.to_dict()
+            s_dict["Enrollment_No"] = enr
             item = {
-                "student": student_data,
+                "student": s_dict,
                 "section_letter": section or "Unknown",
-                "semester": int(student["Semester"]) if pd.notna(student["Semester"]) else "Unknown",
-                "records": records.to_dict("records"),
+                "semester": int(srow["Semester"]) if pd.notna(srow["Semester"]) else 5,
+                "records": recs.to_dict("records"),
             }
             if kind == "attendance":
-                item["average"] = round(float(records["Attendance_Percentage"].mean()), 1) if not records.empty else 0
+                item["average"] = round(float(recs["Attendance_Percentage"].mean()), 1) if not recs.empty else 0.0
             elif kind == "examination":
-                item["average"] = round(float(records["Total_Marks"].mean()), 1) if not records.empty else 0
+                item["average"] = round(float(recs["Total_Marks"].mean()), 1) if not recs.empty else 0.0
             else:
-                item["fee"] = records.iloc[0].to_dict() if not records.empty else None
+                item["fee"] = recs.iloc[0].to_dict() if not recs.empty else None
             items.append(item)
+
         if items:
+            dept_code = items[0]["student"].get("Department", "ALL")
             sections.append({
                 "letter": section or "Unknown",
-                "dept_code": "Multiple",
-                "dept_name": "Section " + str(section or "Unknown"),
+                "dept_code": dept_code,
+                "dept_name": f"{dept_code} — Section {section}",
                 "students": items,
                 "student_count": len(items),
             })
+
+    dept_order = {d: i for i, d in enumerate(config.DEPARTMENTS)}
+    def sec_key(s_dict):
+        parts = str(s_dict.get("letter", "")).split("-")
+        dept = parts[0] if parts else ""
+        letter = parts[1] if len(parts) > 1 else ""
+        return (dept_order.get(dept, 99), letter)
+
+    sections.sort(key=sec_key)
     return students, frame, sections
 
 
-def _paginate_sections(sections, page, page_size):
-    """Paginate student cards while preserving their section grouping."""
+def _paginate_sections(sections, page: int, page_size: int):
     all_items = [(section, item) for section in sections for item in section["students"]]
     total = len(all_items)
     start = (page - 1) * page_size
     selected = all_items[start:start + page_size]
-    grouped = {}
+    grouped: dict[str, dict] = {}
     for section, item in selected:
         grouped.setdefault(section["letter"], {**section, "students": []})
         grouped[section["letter"]]["students"].append(item)
@@ -551,48 +481,42 @@ def _paginate_sections(sections, page, page_size):
         section["student_count"] = len(section["students"])
     return list(grouped.values()), total
 
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    """Consolidated institutional dashboard summary (No recent searches or detail tables)."""
-    kpis = get_kpis()
-    summary = get_dashboard_summary()
-    return render_template("dashboard.html", kpis=kpis, summary=summary, active_page="dashboard")
 
 @app.route("/search")
 @login_required
 def search():
-    """Handles enrollment number search from search boxes."""
     enrollment_no = request.args.get("enrollment_no", "").strip()
     if not enrollment_no:
         flash("Please enter an Enrollment Number to search.", "warning")
         return redirect(url_for("search_student_page"))
-    
-    student = get_integrated_student(enrollment_no)
+
+    current_user = session.get("user")
+    student = get_integrated_student(enrollment_no, user=current_user)
     if not student:
-        flash(f"No student record found matching Enrollment Number '{enrollment_no}'.", "danger")
+        flash(f"No authorized record found for Enrollment Number '{enrollment_no}'.", "danger")
         return redirect(url_for("search_student_page"))
-    
-    matched_enr = student["personal"]["Enrollment_No"]
-    return redirect(url_for("student_profile", enrollment_no=matched_enr))
+
+    return redirect(url_for("student_profile", enrollment_no=student["personal"]["Enrollment_No"]))
+
 
 @app.route("/search-student")
 @login_required
 def search_student_page():
-    """Dedicated Search Student page."""
-    example_students = []
-    if DATA_MODE == "csv":
-        example_students = get_store().students.head(4).to_dict("records")
-    return render_template(
-        "search_student.html",
-        example_students=example_students,
-        active_page="search_student",
-    )
+    user = session.get("user")
+    data = get_store()
+    st = data.students.copy()
+    if user:
+        if user.get("role") == "HOD":
+            st = st[st["Department"] == user.get("department")]
+        elif user.get("role") == "FACULTY":
+            st = st[st["Section"].isin(user.get("assigned_sections", []))]
+    examples = st.head(4).to_dict("records")
+    return render_template("search_student.html", example_students=examples, active_page="search_student")
+
 
 @app.route("/student/")
 @login_required
 def student_profile_index():
-    """Report an incomplete profile URL instead of opening a general view."""
     return render_template(
         "student_error.html",
         error_title="Enrollment number required",
@@ -601,12 +525,20 @@ def student_profile_index():
         active_page="students",
     ), 400
 
+
 @app.route("/student/<enrollment_no>")
 @login_required
 def student_profile(enrollment_no):
-    """Displays the unified student profile integrated across all 4 MySQL tables."""
-    student_data = get_integrated_student(enrollment_no)
+    current_user = session.get("user")
+    student_data = get_integrated_student(enrollment_no, user=current_user)
+
     if not student_data:
+        # Check if student exists in the database but outside user's role scope -> 403 Forbidden!
+        store = get_store()
+        key = enrollment_no.strip().upper()
+        raw_match = store.students[store.students["Enrollment_No"].str.upper() == key]
+        if not raw_match.empty:
+            abort(403)
         return render_template(
             "student_error.html",
             error_title="Student not found",
@@ -614,18 +546,15 @@ def student_profile(enrollment_no):
             error_code=404,
             active_page="students",
         ), 404
-    
-    return render_template(
-        "profile.html",
-        data=student_data,
-        active_page="students"
-    )
+
+    return render_template("profile.html", data=student_data, active_page="students")
+
 
 @app.route("/students")
 @login_required
 def students_page():
-    """Student Management -> All Students Page (Queried from MySQL students table)."""
-    kpis = get_kpis()
+    user = session.get("user")
+    kpis = get_kpis(user=user)
 
     dept_filter = request.args.get("department", "").strip()
     sec_filter = request.args.get("section", "").strip()
@@ -634,69 +563,38 @@ def students_page():
     page = max(request.args.get("page", 1, type=int), 1)
     page_size = min(max(request.args.get("page_size", 50, type=int), 1), 200)
 
-    if DATA_MODE == "csv":
-        students = get_store().students.copy()
-        if dept_filter:
-            students = students[students["Department"] == dept_filter]
-        if sec_filter:
-            students = students[students["Section"] == sec_filter]
-        if sem_filter and sem_filter.isdigit():
-            students = students[students["Semester"] == int(sem_filter)]
-        if search_q:
-            query = search_q.lower()
-            students = students[
-                students["Enrollment_No"].str.lower().str.contains(query, na=False)
-                | students["Name"].str.lower().str.contains(query, na=False)
-            ]
-        students = students.sort_values("Enrollment_No")
-        total_students = len(students)
-        student_list = students.iloc[(page - 1) * page_size:page * page_size].to_dict("records")
-        return render_template(
-            "students.html",
-            students=student_list,
-            kpis=kpis,
-            selected_dept=dept_filter,
-            selected_sec=sec_filter,
-            selected_sem=sem_filter,
-            search_query=search_q,
-            page=page,
-            page_size=page_size,
-            total_students=total_students,
-            active_page="students",
-        )
+    # Input validation
+    if dept_filter and not validate_alpha_only(dept_filter):
+        dept_filter = ""
+    if sem_filter and not validate_numeric_only(sem_filter):
+        sem_filter = ""
 
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    query = "SELECT * FROM `students` WHERE 1=1"
-    params = []
-    
+    students = get_store().students.copy()
+
+    # Scope filtering
+    if user:
+        if user.get("role") == "HOD":
+            students = students[students["Department"] == user.get("department")]
+        elif user.get("role") == "FACULTY":
+            students = students[students["Section"].isin(user.get("assigned_sections", []))]
+
     if dept_filter:
-        query += " AND `Department` = %s"
-        params.append(dept_filter)
+        students = students[students["Department"] == dept_filter]
     if sec_filter:
-        query += " AND `Section` = %s"
-        params.append(sec_filter)
-    if sem_filter and sem_filter.isdigit():
-        query += " AND `Semester` = %s"
-        params.append(int(sem_filter))
+        students = students[students["Section"] == sec_filter]
+    if sem_filter:
+        students = students[students["Semester"] == int(sem_filter)]
     if search_q:
-        query += " AND (LOWER(`Enrollment_No`) LIKE %s OR LOWER(`Name`) LIKE %s)"
-        params.append(f"%{search_q.lower()}%")
-        params.append(f"%{search_q.lower()}%")
-        
-    query += " ORDER BY `Enrollment_No`;"
-    cursor.execute(query, tuple(params))
-    student_list = cursor.fetchall()
-    for s in student_list:
-        if s.get("Date_of_Birth"):
-            s["Date_of_Birth"] = str(s["Date_of_Birth"])
-        if s.get("CGPA") is not None:
-            s["CGPA"] = float(s["CGPA"])
-            
-    cursor.close()
-    conn.close()
-    
+        q = search_q.lower()
+        students = students[
+            students["Enrollment_No"].str.lower().str.contains(q, na=False)
+            | students["Name"].str.lower().str.contains(q, na=False)
+        ]
+
+    students = students.sort_values("Enrollment_No")
+    total_students = len(students)
+    student_list = students.iloc[(page - 1) * page_size:page * page_size].to_dict("records")
+
     return render_template(
         "students.html",
         students=student_list,
@@ -705,676 +603,555 @@ def students_page():
         selected_sec=sec_filter,
         selected_sem=sem_filter,
         search_query=search_q,
-        page=1,
-        page_size=len(student_list) or 50,
-        total_students=len(student_list),
-        active_page="students"
+        page=page,
+        page_size=page_size,
+        total_students=total_students,
+        active_page="students",
     )
 
-def map_student_to_section(student):
-    """
-    Strict Section mapping according to Department:
-      CSE -> Section A
-      ECE -> Section B
-      EEE -> Section C
-    """
-    dept = (student.get("Department") or "").strip()
-    enr = (student.get("Enrollment_No") or "").strip().upper()
-    if enr.startswith("2026CSE") or "Computer Science" in dept or dept == "CSE":
-        return "A"
-    elif enr.startswith("2026ECE") or "Electronics & Communication" in dept or "Electronics and Communication" in dept or dept == "ECE":
-        return "B"
-    elif enr.startswith("2026EEE") or "Electrical" in dept or dept == "EEE":
-        return "C"
-    return "A"
 
+# ==========================================
+# ACADEMIC MODULES: ATTENDANCE, EXAMS, FEES
+# ==========================================
 @app.route("/attendance")
 @login_required
 def attendance_page():
-    """
-    Attendance Module:
-    Exact hierarchy:
-      SECTION A — Computer Science and Engineering (CSE) -> 4 CSE Students -> Subject-wise Attendance
-      SECTION B — Electronics and Communication Engineering (ECE) -> 3 ECE Students -> Subject-wise Attendance
-      SECTION C — Electrical and Electronics Engineering (EEE) -> 3 EEE Students -> Subject-wise Attendance
-    Semester: Always Semester 6
-    """
-    kpis = get_kpis()
+    user = session.get("user")
+    kpis = get_kpis(user=user)
     sec_filter = request.args.get("section", "").strip().upper()
     subj_filter = request.args.get("subject", "").strip()
     search_q = request.args.get("q", "").strip()
 
-    if DATA_MODE == "csv":
-        students_list, flat_records, sections_data = _csv_module_data(
-            "attendance", sec_filter, subj_filter, search_q=search_q
-        )
-        page = max(request.args.get("page", 1, type=int), 1)
-        page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
-        sections_data, total_students = _paginate_sections(sections_data, page, page_size)
-        values = flat_records["Attendance_Percentage"] if not flat_records.empty else pd.Series(dtype=float)
-        student_avgs = flat_records.groupby("Enrollment_No")["Attendance_Percentage"].mean()
-        return render_template(
-            "attendance.html",
-            sections_data=sections_data,
-            summary_stats={
-                "overall_avg": round(float(values.mean()), 1) if not values.empty else 0,
-                "total_students": total_students,
-                "low_attendance_count": int((student_avgs < 75).sum()),
-            },
-            records=flat_records.to_dict("records"),
-            kpis=get_kpis(),
-            selected_sec=sec_filter,
-            selected_subj=subj_filter,
-            search_query=search_q,
-            page=page,
-            page_size=page_size,
-            total_students=total_students,
-            active_page="attendance",
-        )
-    
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # Fetch all students (or filtered by search query)
-    student_query = "SELECT * FROM `students` WHERE 1=1"
-    student_params = []
-    if search_q:
-        student_query += " AND (`Name` LIKE %s OR `Enrollment_No` LIKE %s)"
-        student_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    student_query += " ORDER BY `Enrollment_No`;"
-    cursor.execute(student_query, tuple(student_params))
-    students_list = cursor.fetchall()
-    
-    # Fetch attendance records
-    att_query = "SELECT a.`Enrollment_No`, a.`Subject`, a.`Attendance_Percentage`, a.`Attendance_ID`, s.`Name`, s.`Department` FROM `attendance` a LEFT JOIN `students` s ON a.`Enrollment_No` = s.`Enrollment_No` WHERE 1=1"
-    att_params = []
-    if subj_filter:
-        att_query += " AND a.`Subject` = %s"
-        att_params.append(subj_filter)
-    if search_q:
-        att_query += " AND (s.`Name` LIKE %s OR a.`Enrollment_No` LIKE %s)"
-        att_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    att_query += " ORDER BY a.`Enrollment_No`, a.`Attendance_ID`;"
-    cursor.execute(att_query, tuple(att_params))
-    flat_records = cursor.fetchall()
-    
-    cursor.close()
-    conn.close()
-    
-    # Map attendance by enrollment_no
-    student_att_map = {}
-    for att in flat_records:
-        enr = att["Enrollment_No"]
-        if enr not in student_att_map:
-            student_att_map[enr] = []
-        student_att_map[enr].append(att)
-        
-    # The 3 canonical sections as strictly mapped:
-    # Section A = CSE, Section B = ECE, Section C = EEE
-    sections_config = [
-        {
-            "letter": "A",
-            "dept_code": "CSE",
-            "dept_name": "Computer Science and Engineering (CSE)"
-        },
-        {
-            "letter": "B",
-            "dept_code": "ECE",
-            "dept_name": "Electronics and Communication Engineering (ECE)"
-        },
-        {
-            "letter": "C",
-            "dept_code": "EEE",
-            "dept_name": "Electrical and Electronics Engineering (EEE)"
-        }
-    ]
-    
-    sections_data = []
-    all_att_percentages = []
-    low_att_students_count = 0
-    total_displayed_students = 0
-    
-    for sec in sections_config:
-        # If user selected a specific section filter, filter accordingly
-        if sec_filter and sec_filter not in [sec["letter"], sec["dept_code"]]:
-            continue
-            
-        sec_students = [s for s in students_list if map_student_to_section(s) == sec["letter"]]
-        student_items = []
-        
-        for s in sec_students:
-            enr = s["Enrollment_No"]
-            records = student_att_map.get(enr, [])
-            
-            # If subject filter is active, only include if they have matching records
-            if subj_filter and not records:
-                continue
-                
-            avg_att = round(sum(r["Attendance_Percentage"] for r in records) / len(records), 1) if records else 0
-            if records:
-                all_att_percentages.extend([r["Attendance_Percentage"] for r in records])
-                
-            if avg_att < 75:
-                low_att_students_count += 1
-                
-            student_items.append({
-                "student": s,
-                "section_letter": sec["letter"],
-                "semester": 6,
-                "records": records,
-                "average": avg_att
-            })
-            total_displayed_students += 1
-            
-        # Add section if there are students
-        if student_items or (not search_q and not subj_filter):
-            sections_data.append({
-                "letter": sec["letter"],
-                "dept_code": sec["dept_code"],
-                "dept_name": sec["dept_name"],
-                "students": student_items,
-                "student_count": len(student_items)
-            })
-            
-    overall_avg_att = round(sum(all_att_percentages) / len(all_att_percentages), 1) if all_att_percentages else 0
-    
-    summary_stats = {
-        "overall_avg": overall_avg_att,
-        "total_students": total_displayed_students,
-        "low_attendance_count": low_att_students_count
-    }
-    
+    students_list, flat_records, sections_data = _csv_module_data(
+        "attendance", sec_filter, subj_filter, search_q=search_q, user=user
+    )
+    page = max(request.args.get("page", 1, type=int), 1)
+    page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
+    sections_data, total_students = _paginate_sections(sections_data, page, page_size)
+    values = flat_records["Attendance_Percentage"] if not flat_records.empty else pd.Series(dtype=float)
+
+    # FIX: low_attendance_count must count UNIQUE STUDENTS whose per-student
+    # average attendance is below threshold — NOT individual subject rows.
+    if not flat_records.empty:
+        per_student_avg = flat_records.groupby("Enrollment_No")["Attendance_Percentage"].mean()
+        low_attendance_count = int((per_student_avg < config.ATTENDANCE_WARNING_THRESHOLD).sum())
+    else:
+        low_attendance_count = 0
+
     return render_template(
         "attendance.html",
         sections_data=sections_data,
-        summary_stats=summary_stats,
-        records=flat_records,
+        summary_stats={
+            "overall_avg": round(float(values.mean()), 1) if not values.empty else 0.0,
+            "low_attendance_count": low_attendance_count,
+            "subjects_count": int(flat_records["Subject"].nunique()) if not flat_records.empty else 0,
+            "total_students": total_students,
+        },
+        records=flat_records.to_dict("records"),
         kpis=kpis,
         selected_sec=sec_filter,
         selected_subj=subj_filter,
         search_query=search_q,
-        active_page="attendance"
+        page=page,
+        page_size=page_size,
+        total_students=total_students,
+        active_page="attendance",
     )
+
 
 @app.route("/examination")
 @login_required
 def examination_page():
-    """
-    Examination Module:
-    Exact hierarchy:
-      SECTION A — Computer Science and Engineering (CSE) -> 4 CSE Students -> Subject-wise Examination
-      SECTION B — Electronics and Communication Engineering (ECE) -> 3 ECE Students -> Subject-wise Examination
-      SECTION C — Electrical and Electronics Engineering (EEE) -> 3 EEE Students -> Subject-wise Examination
-    Semester: Always Semester 6
-    """
-    kpis = get_kpis()
+    user = session.get("user")
+    kpis = get_kpis(user=user)
     sec_filter = request.args.get("section", "").strip().upper()
     subj_filter = request.args.get("subject", "").strip()
     search_q = request.args.get("q", "").strip()
 
-    if DATA_MODE == "csv":
-        students_list, flat_records, sections_data = _csv_module_data(
-            "examination", sec_filter, subj_filter, search_q=search_q
-        )
-        page = max(request.args.get("page", 1, type=int), 1)
-        page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
-        sections_data, total_students = _paginate_sections(sections_data, page, page_size)
-        values = flat_records["Total_Marks"] if not flat_records.empty else pd.Series(dtype=float)
-        return render_template(
-            "examination.html",
-            sections_data=sections_data,
-            summary_stats={
-                "overall_avg": round(float(values.mean()), 1) if not values.empty else 0,
-                "highest_marks": int(values.max()) if not values.empty else 0,
-                "subjects_count": int(flat_records["Subject"].nunique()) if not flat_records.empty else 0,
-                "total_students": total_students,
-            },
-            records=flat_records.to_dict("records"),
-            kpis=get_kpis(),
-            selected_sec=sec_filter,
-            selected_subj=subj_filter,
-            search_query=search_q,
-            page=page,
-            page_size=page_size,
-            total_students=total_students,
-            active_page="examination",
-        )
-    
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # Fetch all students (or filtered by search query)
-    student_query = "SELECT * FROM `students` WHERE 1=1"
-    student_params = []
-    if search_q:
-        student_query += " AND (`Name` LIKE %s OR `Enrollment_No` LIKE %s)"
-        student_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    student_query += " ORDER BY `Enrollment_No`;"
-    cursor.execute(student_query, tuple(student_params))
-    students_list = cursor.fetchall()
-    
-    # Fetch examination records
-    exam_query = """
-        SELECT e.`Enrollment_No`, e.`Subject`, e.`Internal_Marks`, e.`External_Marks`, 
-               e.`Total_Marks`, e.`Grade`, e.`Exam_ID`, s.`Name`, s.`Department` 
-        FROM `examination` e 
-        LEFT JOIN `students` s ON e.`Enrollment_No` = s.`Enrollment_No` 
-        WHERE 1=1
-    """
-    exam_params = []
-    if subj_filter:
-        exam_query += " AND e.`Subject` = %s"
-        exam_params.append(subj_filter)
-    if search_q:
-        exam_query += " AND (s.`Name` LIKE %s OR e.`Enrollment_No` LIKE %s)"
-        exam_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    exam_query += " ORDER BY e.`Enrollment_No`, e.`Exam_ID`;"
-    cursor.execute(exam_query, tuple(exam_params))
-    flat_records = cursor.fetchall()
-    
-    # Query overall institutional examination stats
-    cursor.execute("SELECT AVG(`Total_Marks`) AS `avg_marks`, MAX(`Total_Marks`) AS `max_marks`, COUNT(DISTINCT `Subject`) AS `distinct_subj` FROM `examination`;")
-    summary_db = cursor.fetchone()
-    overall_avg_marks = round(float(summary_db["avg_marks"] or 0), 1) if summary_db and summary_db["avg_marks"] is not None else 0.0
-    highest_marks = int(summary_db["max_marks"] or 0) if summary_db and summary_db["max_marks"] is not None else 0
-    subjects_count = int(summary_db["distinct_subj"] or 0) if summary_db and summary_db["distinct_subj"] is not None else 0
-    
-    cursor.close()
-    conn.close()
-    
-    # Map examination records by enrollment_no
-    student_exam_map = {}
-    for exam in flat_records:
-        enr = exam["Enrollment_No"]
-        if enr not in student_exam_map:
-            student_exam_map[enr] = []
-        student_exam_map[enr].append(exam)
-        
-    # The 3 canonical sections as strictly mapped:
-    # Section A = CSE, Section B = ECE, Section C = EEE
-    sections_config = [
-        {
-            "letter": "A",
-            "dept_code": "CSE",
-            "dept_name": "Computer Science and Engineering (CSE)"
-        },
-        {
-            "letter": "B",
-            "dept_code": "ECE",
-            "dept_name": "Electronics and Communication Engineering (ECE)"
-        },
-        {
-            "letter": "C",
-            "dept_code": "EEE",
-            "dept_name": "Electrical and Electronics Engineering (EEE)"
-        }
-    ]
-    
-    sections_data = []
-    total_displayed_students = 0
-    
-    for sec in sections_config:
-        # If user selected a specific section filter, filter accordingly
-        if sec_filter and sec_filter not in [sec["letter"], sec["dept_code"]]:
-            continue
-            
-        sec_students = [s for s in students_list if map_student_to_section(s) == sec["letter"]]
-        student_items = []
-        
-        for s in sec_students:
-            enr = s["Enrollment_No"]
-            records = student_exam_map.get(enr, [])
-            
-            # If subject filter is active, only include if they have matching records
-            if subj_filter and not records:
-                continue
-                
-            avg_marks = round(sum(r["Total_Marks"] for r in records) / len(records), 1) if records else 0
-            
-            student_items.append({
-                "student": s,
-                "section_letter": sec["letter"],
-                "semester": 6,
-                "records": records,
-                "average": avg_marks
-            })
-            total_displayed_students += 1
-            
-        # Add section if there are students
-        if student_items or (not search_q and not subj_filter):
-            sections_data.append({
-                "letter": sec["letter"],
-                "dept_code": sec["dept_code"],
-                "dept_name": sec["dept_name"],
-                "students": student_items,
-                "student_count": len(student_items)
-            })
-            
-    summary_stats = {
-        "overall_avg": overall_avg_marks,
-        "highest_marks": highest_marks,
-        "subjects_count": subjects_count,
-        "total_students": total_displayed_students
-    }
-    
+    students_list, flat_records, sections_data = _csv_module_data(
+        "examination", sec_filter, subj_filter, search_q=search_q, user=user
+    )
+    page = max(request.args.get("page", 1, type=int), 1)
+    page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
+    sections_data, total_students = _paginate_sections(sections_data, page, page_size)
+    values = flat_records["Total_Marks"] if not flat_records.empty else pd.Series(dtype=float)
+
     return render_template(
         "examination.html",
         sections_data=sections_data,
-        summary_stats=summary_stats,
-        records=flat_records,
+        summary_stats={
+            "overall_avg": round(float(values.mean()), 1) if not values.empty else 0.0,
+            "highest_marks": int(values.max()) if not values.empty else 0,
+            "subjects_count": int(flat_records["Subject"].nunique()) if not flat_records.empty else 0,
+            "total_students": total_students,
+        },
+        records=flat_records.to_dict("records"),
         kpis=kpis,
         selected_sec=sec_filter,
         selected_subj=subj_filter,
         search_query=search_q,
-        active_page="examination"
+        page=page,
+        page_size=page_size,
+        total_students=total_students,
+        active_page="examination",
     )
+
 
 @app.route("/fees")
 @login_required
+@roles_required("ADMIN", "HOD")
 def fees_page():
-    """
-    Fees & Payments Module:
-    Exact hierarchy:
-      SECTION A — Computer Science and Engineering (CSE) -> 4 CSE Students -> Fee Details
-      SECTION B — Electronics and Communication Engineering (ECE) -> 3 ECE Students -> Fee Details
-      SECTION C — Electrical and Electronics Engineering (EEE) -> 3 EEE Students -> Fee Details
-    Semester: Always Semester 6
-    """
-    kpis = get_kpis()
+    user = session.get("user")
+    kpis = get_kpis(user=user)
     sec_filter = request.args.get("section", "").strip().upper()
     status_filter = request.args.get("status", "").strip()
     search_q = request.args.get("q", "").strip()
 
-    if DATA_MODE == "csv":
-        students_list, flat_records, sections_data = _csv_module_data(
-            "fees", section_filter=sec_filter, status_filter=status_filter, search_q=search_q
-        )
-        page = max(request.args.get("page", 1, type=int), 1)
-        page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
-        sections_data, total_students = _paginate_sections(sections_data, page, page_size)
-        return render_template(
-            "fees.html",
-            sections_data=sections_data,
-            summary_stats={
-                "total_fees": f"{int(flat_records['Total_Fees'].sum()):,}" if not flat_records.empty else "0",
-                "total_collected": f"{int(flat_records['Paid_Amount'].sum()):,}" if not flat_records.empty else "0",
-                "total_pending": f"{int(flat_records['Pending_Amount'].sum()):,}" if not flat_records.empty else "0",
-                "pending_students": int((flat_records["Pending_Amount"] > 0).sum()) if not flat_records.empty else 0,
-                "total_students": total_students,
-            },
-            records=flat_records.to_dict("records"),
-            kpis=get_kpis(),
-            selected_sec=sec_filter,
-            selected_status=status_filter,
-            search_query=search_q,
-            page=page,
-            page_size=page_size,
-            total_students=total_students,
-            active_page="fees",
-        )
-    
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
-    # Fetch all students (or filtered by search query)
-    student_query = "SELECT * FROM `students` WHERE 1=1"
-    student_params = []
-    if search_q:
-        student_query += " AND (`Name` LIKE %s OR `Enrollment_No` LIKE %s)"
-        student_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    student_query += " ORDER BY `Enrollment_No`;"
-    cursor.execute(student_query, tuple(student_params))
-    students_list = cursor.fetchall()
-    
-    # Fetch fees records
-    fee_query = """
-        SELECT f.`Enrollment_No`, f.`Semester`, f.`Total_Fees`, f.`Paid_Amount`, 
-               f.`Pending_Amount`, f.`Payment_Status`, f.`Fee_ID`, s.`Name`, s.`Department` 
-        FROM `fees` f 
-        LEFT JOIN `students` s ON f.`Enrollment_No` = s.`Enrollment_No` 
-        WHERE 1=1
-    """
-    fee_params = []
-    if status_filter:
-        fee_query += " AND f.`Payment_Status` = %s"
-        fee_params.append(status_filter)
-    if search_q:
-        fee_query += " AND (s.`Name` LIKE %s OR f.`Enrollment_No` LIKE %s)"
-        fee_params.extend([f"%{search_q}%", f"%{search_q}%"])
-    fee_query += " ORDER BY f.`Enrollment_No`;"
-    cursor.execute(fee_query, tuple(fee_params))
-    flat_records = cursor.fetchall()
-    
-    # Query overall institutional fee stats dynamically from MySQL fees table
-    cursor.execute("""
-        SELECT SUM(`Total_Fees`) AS `total`, 
-               SUM(`Paid_Amount`) AS `paid`, 
-               SUM(`Pending_Amount`) AS `pending`,
-               COUNT(CASE WHEN `Pending_Amount` > 0 OR `Payment_Status` != 'Paid' THEN 1 END) AS `pending_count`
-        FROM `fees`;
-    """)
-    summary_db = cursor.fetchone()
-    total_fees = int(summary_db["total"] or 0) if summary_db and summary_db["total"] is not None else 0
-    total_collected = int(summary_db["paid"] or 0) if summary_db and summary_db["paid"] is not None else 0
-    total_pending = int(summary_db["pending"] or 0) if summary_db and summary_db["pending"] is not None else 0
-    pending_students = int(summary_db["pending_count"] or 0) if summary_db and summary_db["pending_count"] is not None else 0
-    
-    cursor.close()
-    conn.close()
-    
-    # Map fee records by enrollment_no
-    student_fee_map = {r["Enrollment_No"]: r for r in flat_records}
-    
-    # The 3 canonical sections as strictly mapped:
-    # Section A = CSE, Section B = ECE, Section C = EEE
-    sections_config = [
-        {
-            "letter": "A",
-            "dept_code": "CSE",
-            "dept_name": "Computer Science and Engineering (CSE)"
-        },
-        {
-            "letter": "B",
-            "dept_code": "ECE",
-            "dept_name": "Electronics and Communication Engineering (ECE)"
-        },
-        {
-            "letter": "C",
-            "dept_code": "EEE",
-            "dept_name": "Electrical and Electronics Engineering (EEE)"
-        }
-    ]
-    
-    sections_data = []
-    total_displayed_students = 0
-    
-    for sec in sections_config:
-        # If user selected a specific section filter, filter accordingly
-        if sec_filter and sec_filter not in [sec["letter"], sec["dept_code"]]:
-            continue
-            
-        sec_students = [s for s in students_list if map_student_to_section(s) == sec["letter"]]
-        student_items = []
-        
-        for s in sec_students:
-            enr = s["Enrollment_No"]
-            fee_rec = student_fee_map.get(enr)
-            
-            # If status filter is active and student didn't match, exclude
-            if status_filter and not fee_rec:
-                continue
-                
-            if not fee_rec:
-                fee_rec = {
-                    "Semester": 6,
-                    "Total_Fees": 0,
-                    "Paid_Amount": 0,
-                    "Pending_Amount": 0,
-                    "Payment_Status": "N/A"
-                }
-                
-            student_items.append({
-                "student": s,
-                "section_letter": sec["letter"],
-                "semester": 6,
-                "fee": fee_rec
-            })
-            total_displayed_students += 1
-            
-        # Add section if there are students
-        if student_items or (not search_q and not status_filter):
-            sections_data.append({
-                "letter": sec["letter"],
-                "dept_code": sec["dept_code"],
-                "dept_name": sec["dept_name"],
-                "students": student_items,
-                "student_count": len(student_items)
-            })
-            
-    summary_stats = {
-        "total_fees": f"{total_fees:,}",
-        "total_collected": f"{total_collected:,}",
-        "total_pending": f"{total_pending:,}",
-        "pending_students": pending_students,
-        "total_students": total_displayed_students
-    }
-    
+    students_list, flat_records, sections_data = _csv_module_data(
+        "fees", section_filter=sec_filter, status_filter=status_filter, search_q=search_q, user=user
+    )
+    page = max(request.args.get("page", 1, type=int), 1)
+    page_size = min(max(request.args.get("page_size", 10, type=int), 1), 100)
+    sections_data, total_students = _paginate_sections(sections_data, page, page_size)
+
     return render_template(
         "fees.html",
         sections_data=sections_data,
-        summary_stats=summary_stats,
-        records=flat_records,
+        summary_stats={
+            "total_fees": f"{int(flat_records['Total_Fees'].sum()):,}" if not flat_records.empty else "0",
+            "total_collected": f"{int(flat_records['Paid_Amount'].sum()):,}" if not flat_records.empty else "0",
+            "total_pending": f"{int(flat_records['Pending_Amount'].sum()):,}" if not flat_records.empty else "0",
+            "pending_students": int((flat_records["Pending_Amount"] > 0).sum()) if not flat_records.empty else 0,
+            "total_students": total_students,
+        },
+        records=flat_records.to_dict("records"),
         kpis=kpis,
         selected_sec=sec_filter,
         selected_status=status_filter,
         search_query=search_q,
-        active_page="fees"
+        page=page,
+        page_size=page_size,
+        total_students=total_students,
+        active_page="fees",
     )
 
+
+# ==========================================
+# INSTITUTIONAL MODULES: FACULTY, NOTICES, LIBRARY, ADMISSIONS
+# ==========================================
+@app.route("/faculty")
+@login_required
+def faculty_page():
+    user = session.get("user")
+    data = get_store()
+    fac_df = data.faculty.copy() if data.faculty is not None else pd.DataFrame()
+
+    q = request.args.get("q", "").strip()
+    dept = request.args.get("department", "").strip()
+
+    if dept and not validate_alpha_only(dept):
+        dept = ""
+
+    # Scope filtering
+    if user and user.get("role") == "HOD":
+        fac_df = fac_df[fac_df["Department"] == user.get("department")]
+    elif dept:
+        fac_df = fac_df[fac_df["Department"] == dept]
+
+    if q and not fac_df.empty:
+        q_low = q.lower()
+        fac_df = fac_df[
+            fac_df["Name"].str.lower().str.contains(q_low, na=False)
+            | fac_df["Email"].str.lower().str.contains(q_low, na=False)
+            | fac_df["Faculty_ID"].str.lower().str.contains(q_low, na=False)
+        ]
+
+    faculty_list = fac_df.to_dict("records") if not fac_df.empty else []
+    return render_template(
+        "faculty.html",
+        faculty_list=faculty_list,
+        departments=config.DEPARTMENTS,
+        selected_dept=dept,
+        query=q,
+        active_page="faculty",
+    )
+
+
+@app.route("/notices")
+@login_required
+def notices_page():
+    user = session.get("user")
+    data = get_store()
+    notices_df = data.notices.copy() if data.notices is not None else pd.DataFrame()
+
+    q = request.args.get("q", "").strip()
+    category = request.args.get("category", "").strip()
+    priority = request.args.get("priority", "").strip()
+
+    # Scope: Faculty & HOD see notices for ALL and their dept
+    if user and user.get("role") in {"HOD", "FACULTY"}:
+        u_dept = user.get("department")
+        notices_df = notices_df[notices_df["Department"].isin(["ALL", u_dept])]
+
+    if category and not notices_df.empty:
+        notices_df = notices_df[notices_df["Category"] == category]
+    if priority and not notices_df.empty:
+        notices_df = notices_df[notices_df["Priority"] == priority]
+    if q and not notices_df.empty:
+        q_low = q.lower()
+        notices_df = notices_df[
+            notices_df["Title"].str.lower().str.contains(q_low, na=False)
+            | notices_df["Content"].str.lower().str.contains(q_low, na=False)
+        ]
+
+    urgent_notices = []
+    if not notices_df.empty:
+        urgent_df = notices_df[(notices_df["Priority"] == "Urgent") & (notices_df["Is_Active"] == True)]
+        urgent_notices = urgent_df.head(5).to_dict("records")
+
+    items = notices_df.to_dict("records") if not notices_df.empty else []
+    return render_template(
+        "notices.html",
+        notices_list=items,
+        urgent_notices=urgent_notices,
+        selected_cat=category,
+        selected_priority=priority,
+        query=q,
+        active_page="notices",
+    )
+
+
+@app.route("/notices/post", methods=["POST"])
+@login_required
+def post_notice():
+    validate_csrf()
+    title = request.form.get("title", "").strip()
+    content = request.form.get("content", "").strip()
+    category = request.form.get("category", "Academic").strip()
+    priority = request.form.get("priority", "Normal").strip()
+    user = session.get("user", {})
+
+    if not title or not content:
+        flash("Circular title and content are required.", "danger")
+        return redirect(url_for("notices_page"))
+
+    new_row = {
+        "Notice_ID": f"NOT{pd.Timestamp.now().strftime('%m%d%H%M')}",
+        "Title": title,
+        "Content": content,
+        "Category": category,
+        "Department": user.get("department", "ALL"),
+        "Target_Section": "ALL",
+        "Priority": priority,
+        "Published_By": f"{user.get('name', 'Admin')} ({user.get('role')})",
+        "Published_Date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+        "Is_Active": True,
+    }
+
+    data = get_store()
+    if data.notices is not None:
+        data.notices = pd.concat([pd.DataFrame([new_row]), data.notices], ignore_index=True)
+
+    flash("Circular notice posted successfully.", "success")
+    return redirect(url_for("notices_page"))
+
+
+@app.route("/library")
+@login_required
+def library_page():
+    user = session.get("user")
+    data = get_store()
+    lib_df = data.library.copy() if data.library is not None else pd.DataFrame()
+
+    q = request.args.get("q", "").strip()
+    status = request.args.get("status", "").strip()
+
+    # Scope filtering
+    if user and user.get("role") == "HOD":
+        dept_students = set(data.students[data.students["Department"] == user.get("department")]["Enrollment_No"])
+        lib_df = lib_df[lib_df["Enrollment_No"].isin(dept_students)]
+    elif user and user.get("role") == "FACULTY":
+        sec_students = set(data.students[data.students["Section"].isin(user.get("assigned_sections", []))]["Enrollment_No"])
+        lib_df = lib_df[lib_df["Enrollment_No"].isin(sec_students)]
+
+    if status and not lib_df.empty:
+        lib_df = lib_df[lib_df["Status"] == status]
+    if q and not lib_df.empty:
+        q_low = q.lower()
+        lib_df = lib_df[
+            lib_df["Enrollment_No"].str.lower().str.contains(q_low, na=False)
+            | lib_df["Book_Title"].str.lower().str.contains(q_low, na=False)
+        ]
+
+    total_tx = len(lib_df)
+    overdue_count = int((lib_df["Status"] == "Overdue").sum()) if not lib_df.empty else 0
+    overdue_rate = round((overdue_count / total_tx) * 100.0, 1) if total_tx > 0 else 0.0
+    items = lib_df.head(100).to_dict("records") if not lib_df.empty else []
+
+    return render_template(
+        "library.html",
+        items=items,
+        total_tx=total_tx,
+        overdue_rate=overdue_rate,
+        selected_status=status,
+        query=q,
+        active_page="library",
+    )
+
+
+@app.route("/admissions")
+@login_required
+@roles_required("ADMIN", "HOD")
+def admissions_page():
+    user = session.get("user")
+    data = get_store()
+    adm_df = data.admissions.copy() if data.admissions is not None else pd.DataFrame()
+
+    if user and user.get("role") == "HOD":
+        dept_enrs = set(data.students[data.students["Department"] == user.get("department")]["Enrollment_No"])
+        adm_df = adm_df[adm_df["Enrollment_No"].isin(dept_enrs)]
+
+    items = adm_df.head(150).to_dict("records") if not adm_df.empty else []
+    return render_template("admissions.html", admissions_list=items, active_page="admissions")
+
+
+# ==========================================
+# PHASE 6: MACHINE LEARNING & RISK DECISION SUPPORT
+# ==========================================
+@app.route("/risk")
+@login_required
+def risk_page():
+    user = session.get("user")
+    data = get_store()
+    risk_service = RiskPredictorService.get_instance()
+    pred_df = risk_service.predictions_df.copy() if risk_service.predictions_df is not None else pd.DataFrame()
+
+    # Scope filtering
+    if user and user.get("role") == "HOD":
+        pred_df = pred_df[pred_df["Department"] == user.get("department")]
+    elif user and user.get("role") == "FACULTY":
+        sec_enrs = set(data.students[data.students["Section"].isin(user.get("assigned_sections", []))]["Enrollment_No"])
+        pred_df = pred_df[pred_df["Enrollment_No"].isin(sec_enrs)]
+
+    q = request.args.get("q", "").strip()
+    dept = request.args.get("department", "").strip()
+    band = request.args.get("band", "").strip()
+
+    if dept and not pred_df.empty:
+        pred_df = pred_df[pred_df["Department"] == dept]
+    if band and not pred_df.empty:
+        pred_df = pred_df[pred_df["Risk_Band"] == band]
+    if q and not pred_df.empty:
+        q_low = q.lower()
+        pred_df = pred_df[
+            pred_df["Enrollment_No"].str.lower().str.contains(q_low, na=False)
+            | pred_df["Name"].str.lower().str.contains(q_low, na=False)
+        ]
+
+    # Department counts
+    dept_risk_counts = pred_df[pred_df["Predicted_At_Risk"] == 1]["Department"].value_counts().to_dict() if not pred_df.empty else {}
+    for d in config.DEPARTMENTS:
+        dept_risk_counts.setdefault(d, 0)
+
+    risk_summary = {
+        "high_count": int((pred_df["Risk_Band"] == "High").sum()) if not pred_df.empty else 0,
+        "med_count": int((pred_df["Risk_Band"] == "Medium").sum()) if not pred_df.empty else 0,
+        "low_count": int((pred_df["Risk_Band"] == "Low").sum()) if not pred_df.empty else 0,
+        "predicted_at_risk": int(pred_df["Predicted_At_Risk"].sum()) if not pred_df.empty else 0,
+    }
+
+    import ast
+    items = []
+    if not pred_df.empty:
+        for _, row in pred_df.sort_values("Risk_Probability", ascending=False).iterrows():
+            r_dict = row.to_dict()
+            for col in ("Top_Reasons", "Interventions"):
+                if isinstance(r_dict.get(col), str) and r_dict[col].startswith("["):
+                    try:
+                        r_dict[col] = ast.literal_eval(r_dict[col])
+                    except Exception:
+                        pass
+            items.append(r_dict)
+
+    return render_template(
+        "risk.html",
+        items=items,
+        risk_summary=risk_summary,
+        dept_risk_counts=dept_risk_counts,
+        departments=config.DEPARTMENTS,
+        selected_dept=dept,
+        selected_band=band,
+        query=q,
+        active_page="risk",
+    )
+
+
+@app.route("/ml/performance")
+@login_required
+@roles_required("ADMIN", "HOD")
+def ml_performance_page():
+    metrics_path = config.BASE_DIR / "models" / "metrics_summary.json"
+    metrics = {}
+    if metrics_path.exists():
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            metrics = json.load(f)
+
+    risk_service = RiskPredictorService.get_instance()
+    anomalies_list = []
+    if risk_service.predictions_df is not None and "Is_Anomaly" in risk_service.predictions_df.columns:
+        anom_df = risk_service.predictions_df[risk_service.predictions_df["Is_Anomaly"] == 1]
+        anomalies_list = anom_df.to_dict("records")
+
+    return render_template("ml_performance.html", metrics=metrics, anomalies_list=anomalies_list, active_page="ml_performance")
+
+
+@app.route("/api/ml/what-if", methods=["POST"])
+@login_required
+def api_what_if():
+    validate_csrf()
+    body = request.get_json(silent=True) or {}
+    att_delta = float(body.get("attendance_delta", 0.0))
+    int_delta = float(body.get("internal_delta", 0.0))
+
+    base_features = {
+        "overall_attendance_pct": 74.0,
+        "subjects_below_75": 1,
+        "min_subject_attendance": 65.0,
+        "internal_marks_avg_pct": 52.0,
+        "internal_marks_min_pct": 42.0,
+        "prior_sgpa_mean": 6.8,
+        "prior_sgpa_last": 6.6,
+        "prior_sgpa_trend": -0.2,
+        "prior_backlogs": 0,
+        "prior_sem_attendance": 76.0,
+        "fee_pending_ratio": 0.0,
+        "fee_overdue_flag": 0,
+        "library_issues_count": 8,
+        "credits_registered": 20,
+        "dept_CSE": 1,
+        "dept_ECE": 0,
+        "dept_EEE": 0,
+        "dept_IT": 0,
+        "dept_AIDS": 0,
+        "dept_AIML": 0,
+        "original_prob": 0.425,
+    }
+
+    service = RiskPredictorService.get_instance()
+    result = service.simulate_what_if(base_features, att_delta, int_delta)
+    return jsonify(result)
+
+
+# ==========================================
+# REPORTS & CSV EXPORT
+# ==========================================
 @app.route("/reports")
 @login_required
 def reports_page():
-    """Institutional Reports (Calculated via SQL aggregations from MySQL)."""
-    kpis = get_kpis()
-    if DATA_MODE == "csv":
-        data = get_store()
-        joined_att = data.attendance.merge(
-            data.students[["Enrollment_No", "Department"]], on="Enrollment_No"
-        )
-        dept_stats = []
-        for department, students in data.students.groupby("Department", sort=True):
-            ids = set(students["Enrollment_No"])
-            fees = data.fees[data.fees["Enrollment_No"].isin(ids)]
-            exams = data.examination[data.examination["Enrollment_No"].isin(ids)]
-            attendance = joined_att[joined_att["Enrollment_No"].isin(ids)]
-            dept_stats.append({
-                "department": department,
-                "count": len(students),
-                "avg_attendance": round(float(attendance["Attendance_Percentage"].mean()), 1),
-                "avg_cgpa": round(float(students["CGPA"].mean()), 2),
-                "total_fees": f"{int(fees['Total_Fees'].sum()):,}",
-                "paid_fees": f"{int(fees['Paid_Amount'].sum()):,}",
-                "pending_fees": f"{int(fees['Pending_Amount'].sum()):,}",
-            })
-        return render_template(
-            "reports.html",
-            kpis=kpis,
-            dept_stats=dept_stats,
-            exam_summary={
-                "avg_marks": round(float(data.examination["Total_Marks"].mean()), 1),
-                "highest_marks": int(data.examination["Total_Marks"].max()),
-                "lowest_marks": int(data.examination["Total_Marks"].min()),
-                "students_appeared": int(data.examination["Enrollment_No"].nunique()),
-            },
-            active_page="reports",
-        )
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-    
+    user = session.get("user")
+    kpis = get_kpis(user=user)
+    data = get_store()
+    students = data.students.copy()
+    attendance = data.attendance.copy()
+    examination = data.examination.copy()
+    fees = data.fees.copy()
+
+    if user and user.get("role") == "HOD":
+        dept = user.get("department")
+        students = students[students["Department"] == dept]
+        s_ids = set(students["Enrollment_No"])
+        attendance = attendance[attendance["Enrollment_No"].isin(s_ids)]
+        examination = examination[examination["Enrollment_No"].isin(s_ids)]
+        fees = fees[fees["Enrollment_No"].isin(s_ids)]
+    elif user and user.get("role") == "FACULTY":
+        students = students[students["Section"].isin(user.get("assigned_sections", []))]
+        s_ids = set(students["Enrollment_No"])
+        attendance = attendance[attendance["Enrollment_No"].isin(s_ids)]
+        examination = examination[examination["Enrollment_No"].isin(s_ids)]
+        fees = fees.iloc[0:0]
+
     dept_stats = []
-    for dept in kpis["departments"]:
-        cursor.execute("SELECT COUNT(*) as `count`, AVG(`CGPA`) as `avg_cgpa` FROM `students` WHERE `Department` = %s;", (dept,))
-        stud_data = cursor.fetchone()
-        
-        cursor.execute("""
-            SELECT AVG(a.`Attendance_Percentage`) as `avg_att`
-            FROM `attendance` a
-            JOIN `students` s ON a.`Enrollment_No` = s.`Enrollment_No`
-            WHERE s.`Department` = %s;
-        """, (dept,))
-        att_data = cursor.fetchone()
-        
-        cursor.execute("""
-            SELECT SUM(f.`Total_Fees`) as `total`, SUM(f.`Paid_Amount`) as `paid`, SUM(f.`Pending_Amount`) as `pending`
-            FROM `fees` f
-            JOIN `students` s ON f.`Enrollment_No` = s.`Enrollment_No`
-            WHERE s.`Department` = %s;
-        """, (dept,))
-        fee_data = cursor.fetchone()
-        
+    dept_order = {d: i for i, d in enumerate(config.DEPARTMENTS)}
+    for dept in sorted(students["Department"].unique(), key=lambda d: dept_order.get(d, 99)):
+        dept_st = students[students["Department"] == dept]
+        d_ids = set(dept_st["Enrollment_No"])
+        d_att = attendance[attendance["Enrollment_No"].isin(d_ids)]
+        d_fees = fees[fees["Enrollment_No"].isin(d_ids)]
         dept_stats.append({
-            "department": dept,
-            "count": int(stud_data["count"] or 0),
-            "avg_attendance": round(float(att_data["avg_att"] or 0), 1),
-            "avg_cgpa": round(float(stud_data["avg_cgpa"] or 0), 2),
-            "total_fees": f"{int(fee_data['total'] or 0):,}",
-            "paid_fees": f"{int(fee_data['paid'] or 0):,}",
-            "pending_fees": f"{int(fee_data['pending'] or 0):,}"
+            "Department": dept,
+            "Students": len(dept_st),
+            "Average_Attendance": round(float(d_att["Attendance_Percentage"].mean()), 1) if not d_att.empty else 0.0,
+            "Average_CGPA": round(float(dept_st["CGPA"].mean()), 2) if not dept_st.empty else 0.0,
+            "Total_Fees": int(d_fees["Total_Fees"].sum()),
+            "Paid_Amount": int(d_fees["Paid_Amount"].sum()),
+            "Pending_Amount": int(d_fees["Pending_Amount"].sum()),
         })
-        
-    cursor.execute("""
-        SELECT AVG(`Total_Marks`) AS `avg_marks`, 
-               MAX(`Total_Marks`) AS `max_marks`, 
-               MIN(`Total_Marks`) AS `min_marks`,
-               COUNT(DISTINCT `Enrollment_No`) AS `students_appeared`
-        FROM `examination`;
-    """)
-    exam_stats_row = cursor.fetchone()
+
+    exam_vals = examination["Total_Marks"] if not examination.empty else pd.Series(dtype=float)
     exam_summary = {
-        "avg_marks": round(float(exam_stats_row["avg_marks"]), 1) if exam_stats_row and exam_stats_row["avg_marks"] is not None else 0.0,
-        "highest_marks": int(exam_stats_row["max_marks"]) if exam_stats_row and exam_stats_row["max_marks"] is not None else 0,
-        "lowest_marks": int(exam_stats_row["min_marks"]) if exam_stats_row and exam_stats_row["min_marks"] is not None else 0,
-        "students_appeared": int(exam_stats_row["students_appeared"]) if exam_stats_row and exam_stats_row["students_appeared"] is not None else 0
+        "avg_marks": round(float(exam_vals.mean()), 1) if not exam_vals.empty else 0.0,
+        "highest_marks": int(exam_vals.max()) if not exam_vals.empty else 0,
+        "lowest_marks": int(exam_vals.min()) if not exam_vals.empty else 0,
+        "students_appeared": len(examination["Enrollment_No"].unique()) if not examination.empty else 0,
     }
 
-    cursor.close()
-    conn.close()
-    return render_template("reports.html", kpis=kpis, dept_stats=dept_stats, exam_summary=exam_summary, active_page="reports")
+    return render_template(
+        "reports.html",
+        kpis=kpis,
+        dept_stats=dept_stats,
+        exam_summary=exam_summary,
+        active_page="reports",
+    )
 
 
 @app.route("/reports/export")
 @login_required
 def reports_export():
-    """Download a real CSV report from the configured warehouse source."""
-    report = request.args.get("report", "students").strip().lower()
+    report = request.args.get("report", "").strip().lower()
+    user = session.get("user", {})
+    role = user.get("role")
+
+    # Faculty is strictly forbidden from accessing or exporting fees
+    if report == "fees" and role == "FACULTY":
+        abort(403)
+
     if DATA_MODE != "csv":
-        return jsonify({"error": "Report export is currently implemented for CSV mode"}), 501
+        return jsonify({"error": "Report export is supported in CSV warehouse mode"}), 501
 
     data = get_store()
     if report in {"students", "attendance", "examination", "fees"}:
         frame = getattr(data, report).copy()
+        # Scope export by user department
+        if role == "HOD":
+            dept_students = set(data.students[data.students["Department"] == user.get("department")]["Enrollment_No"])
+            frame = frame[frame["Enrollment_No"].isin(dept_students)]
+        elif role == "FACULTY":
+            sec_students = set(data.students[data.students["Section"].isin(user.get("assigned_sections", []))]["Enrollment_No"])
+            frame = frame[frame["Enrollment_No"].isin(sec_students)]
         filename = f"ifhe_{report}_semester5.csv"
+
     elif report == "departments":
         students = data.students
-        attendance = data.attendance.merge(
-            students[["Enrollment_No", "Department"]], on="Enrollment_No", how="inner"
-        )
+        if role == "HOD":
+            students = students[students["Department"] == user.get("department")]
+        attendance = data.attendance.merge(students[["Enrollment_No", "Department"]], on="Enrollment_No", how="inner")
         rows = []
         for department, group in students.groupby("Department", sort=True):
             ids = set(group["Enrollment_No"])
-            department_attendance = attendance[attendance["Enrollment_No"].isin(ids)]
-            department_fees = data.fees[data.fees["Enrollment_No"].isin(ids)]
+            dept_att = attendance[attendance["Enrollment_No"].isin(ids)]
+            dept_fees = data.fees[data.fees["Enrollment_No"].isin(ids)]
             rows.append({
                 "Department": department,
                 "Students": len(group),
-                "Average_Attendance": round(float(department_attendance["Attendance_Percentage"].mean()), 1),
+                "Average_Attendance": round(float(dept_att["Attendance_Percentage"].mean()), 1),
                 "Average_CGPA": round(float(group["CGPA"].mean()), 2),
-                "Total_Fees": int(department_fees["Total_Fees"].sum()),
-                "Paid_Amount": int(department_fees["Paid_Amount"].sum()),
-                "Pending_Amount": int(department_fees["Pending_Amount"].sum()),
+                "Total_Fees": int(dept_fees["Total_Fees"].sum()),
+                "Paid_Amount": int(dept_fees["Paid_Amount"].sum()),
+                "Pending_Amount": int(dept_fees["Pending_Amount"].sum()),
             })
         frame = pd.DataFrame(rows)
         filename = "ifhe_department_summary_semester5.csv"
+
     else:
         return jsonify({
             "error": "Unsupported report",
@@ -1389,18 +1166,27 @@ def reports_export():
         download_name=filename,
     )
 
+
 @app.route("/settings")
 @login_required
 def settings_page():
-    """Settings Page showing Admin Profile and Institutional Scope."""
     return render_template("settings.html", user=session.get("user"), active_page="settings")
 
+
+# ==========================================
+# REST API ENDPOINTS
+# ==========================================
 @app.route("/api/student/<enrollment_no>")
 @login_required
 def api_student(enrollment_no):
-    """REST API endpoint returning integrated student profile from MySQL."""
-    student_data = get_integrated_student(enrollment_no)
+    user = session.get("user")
+    student_data = get_integrated_student(enrollment_no, user=user)
     if not student_data:
+        store = get_store()
+        key = enrollment_no.strip().upper()
+        raw = store.students[store.students["Enrollment_No"].str.upper() == key]
+        if not raw.empty:
+            abort(403)
         return jsonify({"error": "Student not found", "enrollment_no": enrollment_no}), 404
     return jsonify(student_data)
 
@@ -1408,7 +1194,8 @@ def api_student(enrollment_no):
 @app.route("/api/kpis")
 @login_required
 def api_kpis():
-    return jsonify(get_kpis())
+    user = session.get("user")
+    return jsonify(get_kpis(user=user))
 
 
 @app.route("/api/students")
@@ -1416,25 +1203,38 @@ def api_kpis():
 def api_students():
     data = get_store() if DATA_MODE == "csv" else None
     if data is None:
-        return jsonify({"error": "Student collection API is currently available in CSV mode only"}), 501
+        return jsonify({"error": "Student collection API is available in CSV mode"}), 501
+
+    user = session.get("user")
+    students = data.students.copy()
+
+    # Scope enforcement
+    if user:
+        role = user.get("role")
+        if role == "HOD":
+            students = students[students["Department"] == user.get("department")]
+        elif role == "FACULTY":
+            students = students[students["Section"].isin(user.get("assigned_sections", []))]
+
     query = request.args.get("q", "").strip().lower()
-    department = request.args.get("department", "").strip()
-    section = request.args.get("section", "").strip()
-    semester = request.args.get("semester", type=int)
+    dept = request.args.get("department", "").strip()
+    sec = request.args.get("section", "").strip()
+    sem = request.args.get("semester", type=int)
     page = max(request.args.get("page", 1, type=int), 1)
     page_size = min(max(request.args.get("page_size", 50, type=int), 1), 200)
-    students = data.students
+
     if query:
         students = students[
             students["Enrollment_No"].str.lower().str.contains(query, na=False)
             | students["Name"].str.lower().str.contains(query, na=False)
         ]
-    if department:
-        students = students[students["Department"] == department]
-    if section:
-        students = students[students["Section"] == section]
-    if semester is not None:
-        students = students[students["Semester"] == semester]
+    if dept:
+        students = students[students["Department"] == dept]
+    if sec:
+        students = students[students["Section"] == sec]
+    if sem is not None:
+        students = students[students["Semester"] == sem]
+
     students = students.sort_values("Enrollment_No")
     total = len(students)
     rows = students.iloc[(page - 1) * page_size:page * page_size].to_dict("records")
@@ -1446,8 +1246,132 @@ def api_students():
 def api_data_quality():
     return jsonify(get_store().quality.as_dict() if DATA_MODE == "csv" else {
         "mode": "mysql",
-        "message": "Quality summary is supplied by the configured MySQL warehouse",
+        "message": "Quality summary is supplied by MySQL warehouse",
     })
 
+
+# ==========================================
+# ADMIN — ADD STUDENT
+# ==========================================
+import csv as _csv
+from datetime import date as _date, datetime as _datetime
+
+DEPARTMENTS = ["AIDS", "AIML", "CSE", "ECE", "EEE", "IT"]
+SECTION_LETTERS = ["A", "B", "C", "D"]
+
+
+@app.route("/students/add", methods=["GET", "POST"])
+@login_required
+@roles_required("ADMIN")
+def add_student_page():
+    """ADMIN-only page: Add a new student record to the system."""
+    user = session.get("user")
+    kpis = get_kpis(user=user)
+    errors: list[str] = []
+
+    if request.method == "POST":
+        validate_csrf(request.form.get("csrf_token", ""))
+
+        # --- Collect fields ---
+        name = request.form.get("name", "").strip()
+        department = request.form.get("department", "").strip().upper()
+        section_letter = request.form.get("section_letter", "").strip().upper()
+        gender = request.form.get("gender", "").strip()
+        phone = request.form.get("phone", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        dob_str = request.form.get("date_of_birth", "").strip()
+        address = request.form.get("address", "").strip()
+
+        # --- Validate ---
+        if not name:
+            errors.append("Name is required.")
+        elif not validate_alpha_only(name):
+            errors.append("Name must contain only letters, spaces, hyphens, or periods.")
+
+        if department not in DEPARTMENTS:
+            errors.append(f"Department must be one of: {', '.join(DEPARTMENTS)}.")
+
+        if section_letter not in SECTION_LETTERS:
+            errors.append(f"Section must be A, B, C, or D.")
+
+        if gender not in ("Male", "Female", "Other"):
+            errors.append("Gender must be Male, Female, or Other.")
+
+        if not phone:
+            errors.append("Phone number is required.")
+        elif not validate_numeric_only(phone) or len(phone) != 10:
+            errors.append("Phone must be exactly 10 digits.")
+
+        if not email or "@" not in email:
+            errors.append("A valid email address is required.")
+
+        if not dob_str:
+            errors.append("Date of Birth is required.")
+        else:
+            try:
+                dob = _datetime.strptime(dob_str, "%Y-%m-%d").date()
+                admission_year = dob.year + 17
+                if dob.year < 2000 or dob.year > 2008:
+                    errors.append("Date of Birth must yield an admission age of 17–20 (DOB year 2000–2008).")
+            except ValueError:
+                errors.append("Date of Birth must be in YYYY-MM-DD format.")
+
+        if not address:
+            errors.append("Address is required.")
+
+        if not errors:
+            # --- Generate new Enrollment_No ---
+            data = get_store()
+            existing_ids = data.students["Enrollment_No"].str.extract(r"STU(\d+)")[0].dropna().astype(int)
+            next_id = int(existing_ids.max()) + 1 if not existing_ids.empty else 1001
+            enrollment_no = f"STU{next_id:04d}"
+
+            section = f"{department}-{section_letter}"
+            new_row = {
+                "Enrollment_No": enrollment_no,
+                "Name": name,
+                "Phone_No": phone,
+                "Email": email,
+                "Gender": gender,
+                "Department": department,
+                "Section": section,
+                "Semester": config.CURRENT_SEMESTER,
+                "Address": address,
+                "Academic_Year": "2025-2026",
+                "CGPA": 0.0,
+                "Date_of_Birth": dob_str,
+                "Batch": "2023-27",
+                "Admission_Year": admission_year,
+            }
+
+            # --- Append to both CSV locations ---
+            csv_paths = [
+                config.BASE_DIR / "erp_semester5_etl_package" / "students (2).csv",
+                config.BASE_DIR / "data" / "students.csv",
+            ]
+            for path in csv_paths:
+                if path.exists():
+                    with open(path, "a", newline="", encoding="utf-8") as f:
+                        writer = _csv.DictWriter(f, fieldnames=list(new_row.keys()))
+                        writer.writerow(new_row)
+
+            # Invalidate store cache so new student appears immediately
+            import data_store as _ds
+            _ds._STORE = None
+
+            flash(f"Student {name} ({enrollment_no}) added successfully!", "success")
+            return redirect(url_for("students_page"))
+
+    return render_template(
+        "add_student.html",
+        errors=errors,
+        departments=DEPARTMENTS,
+        sections=SECTION_LETTERS,
+        kpis=kpis,
+        active_page="add_student",
+    )
+
+
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=5000)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(debug=True, host="127.0.0.1", port=port)

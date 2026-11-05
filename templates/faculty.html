@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Faculty Directory | IFHE ERP{% endblock %}
+{% block page_title %}Faculty Directory{% endblock %}
+
+{% block content %}
+<div class="container-fluid p-0">
+    <!-- Header -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <div>
+            <h4 class="fw-bold mb-1">Faculty & Academic Staff</h4>
+            <p class="text-muted fs-xs mb-0">Directory of teaching staff, departmental leadership, and weekly instructional workloads.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 fs-xs">
+                <i class="bi bi-people-fill me-1"></i> Total Faculty: {{ faculty_list|length }}
+            </span>
+            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 fs-xs">
+                <i class="bi bi-person-badge me-1"></i> Student-Faculty Ratio ≈ 1:17.2
+            </span>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card border-0 shadow-xs mb-4">
+        <div class="card-body p-3">
+            <form method="GET" action="{{ url_for('faculty_page') }}" class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                        <input type="text" name="q" value="{{ query }}" class="form-control border-start-0" placeholder="Search faculty by name, email, or ID...">
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select name="department" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="">All Departments</option>
+                        {% for d in departments %}
+                            <option value="{{ d }}" {% if selected_dept == d %}selected{% endif %}>{{ d }} Department</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary flex-grow-1"><i class="bi bi-filter me-1"></i> Filter</button>
+                    {% if query or selected_dept %}
+                        <a href="{{ url_for('faculty_page') }}" class="btn btn-sm btn-outline-secondary">Reset</a>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Faculty Table -->
+    <div class="card border-0 shadow-xs">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0 fs-xs">
+                <thead class="table-light text-uppercase fs-xxs">
+                    <tr>
+                        <th class="ps-3">Faculty ID</th>
+                        <th>Name</th>
+                        <th>Department</th>
+                        <th>Designation</th>
+                        <th>Email & Phone</th>
+                        <th>Weekly Teaching Load</th>
+                        <th class="text-end pe-3">Role</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fac in faculty_list %}
+                    <tr>
+                        <td class="ps-3 font-monospace fw-semibold">{{ fac.Faculty_ID }}</td>
+                        <td>
+                            <div class="fw-semibold text-dark">{{ fac.Name }}</div>
+                        </td>
+                        <td>
+                            <span class="badge bg-light text-dark border">{{ fac.Department }}</span>
+                        </td>
+                        <td>{{ fac.Designation }}</td>
+                        <td>
+                            <div><i class="bi bi-envelope text-muted me-1"></i>{{ fac.Email }}</div>
+                            <div class="text-muted"><i class="bi bi-telephone text-muted me-1"></i>{{ fac.Phone_No }}</div>
+                        </td>
+                        <td>
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="progress flex-grow-1" style="height: 6px; width: 80px;">
+                                    <div class="progress-bar {% if fac.Weekly_Load_Hours > 16 %}bg-danger{% elif fac.Weekly_Load_Hours > 12 %}bg-primary{% else %}bg-success{% endif %}" 
+                                         role="progressbar" style="width: {{ (fac.Weekly_Load_Hours / 20) * 100 }}%"></div>
+                                </div>
+                                <span class="fw-bold">{{ fac.Weekly_Load_Hours }} hrs/wk</span>
+                            </div>
+                        </td>
+                        <td class="text-end pe-3">
+                            {% if fac.Is_HOD %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">HOD</span>
+                            {% else %}
+                                <span class="badge bg-light text-muted border">Faculty</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-4 text-muted">No faculty members found matching the filter criteria.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
