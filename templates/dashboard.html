@@ -21,27 +21,22 @@
         <a class="metric-card" href="{{ url_for('students_page') }}">
             <div class="metric-card-top"><span class="metric-label">Students enrolled</span><i class="bi bi-people"></i></div>
             <div class="metric-value">{{ "{:,}".format(summary.student.total) }}</div>
-            <div class="metric-meta"><span class="metric-positive"><i class="bi bi-check2"></i> Source validated</span><span>6 departments</span></div>
         </a>
         <a class="metric-card" href="{{ url_for('attendance_page') }}">
             <div class="metric-card-top"><span class="metric-label">Average attendance</span><i class="bi bi-calendar-check"></i></div>
             <div class="metric-value">{{ summary.attendance.overall_avg }}<small>%</small></div>
-            <div class="metric-meta"><span class="{% if summary.attendance.overall_avg >= 75 %}metric-positive{% else %}metric-warning{% endif %}"><i class="bi bi-activity"></i> Institutional average</span><span>{{ summary.attendance.low_count }} below 75%</span></div>
         </a>
         <a class="metric-card" href="{{ url_for('examination_page') }}">
             <div class="metric-card-top"><span class="metric-label">Average examination mark</span><i class="bi bi-bar-chart"></i></div>
             <div class="metric-value">{{ summary.examination.avg_marks }}<small>/100</small></div>
-            <div class="metric-meta"><span class="metric-positive"><i class="bi bi-graph-up"></i> 5,000 evaluations</span><span>Peak {{ summary.examination.highest_marks }}</span></div>
         </a>
         <a class="metric-card" href="{{ url_for('fees_page') }}">
             <div class="metric-card-top"><span class="metric-label">Fees outstanding</span><i class="bi bi-wallet2"></i></div>
             <div class="metric-value metric-currency">₹{{ summary.fees.pending }}</div>
-            <div class="metric-meta"><span class="metric-warning"><i class="bi bi-exclamation-circle"></i> {{ summary.fees.pending_students }} students</span><span>of ₹{{ summary.fees.total }}</span></div>
         </a>
         <a class="metric-card" href="{{ url_for('risk_page') }}" style="border-left: 3px solid #dc2626;">
             <div class="metric-card-top"><span class="metric-label text-danger">At-Risk Students (AI)</span><i class="bi bi-shield-exclamation text-danger"></i></div>
             <div class="metric-value text-danger">{{ summary.at_risk_count }}</div>
-            <div class="metric-meta"><span class="metric-warning"><i class="bi bi-radar"></i> {{ summary.high_risk_count }} high priority</span><span>Recall ≥ 80%</span></div>
         </a>
     </section>
 

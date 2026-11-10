@@ -1014,27 +1014,29 @@ def api_what_if():
     int_delta = float(body.get("internal_delta", 0.0))
 
     base_features = {
-        "overall_attendance_pct": 74.0,
-        "subjects_below_75": 1,
-        "min_subject_attendance": 65.0,
-        "internal_marks_avg_pct": 52.0,
-        "internal_marks_min_pct": 42.0,
-        "prior_sgpa_mean": 6.8,
-        "prior_sgpa_last": 6.6,
-        "prior_sgpa_trend": -0.2,
-        "prior_backlogs": 0,
-        "prior_sem_attendance": 76.0,
+        # Baseline: STU0604 (Praveen Khan) — a genuine High Risk student (97.8% risk)
+        # Drag sliders UP to see risk drop from High → Medium → Low
+        "overall_attendance_pct": 62.5,
+        "subjects_below_75": 5,
+        "min_subject_attendance": 53.33,
+        "internal_marks_avg_pct": 55.0,
+        "internal_marks_min_pct": 42.5,
+        "prior_sgpa_mean": 5.36,
+        "prior_sgpa_last": 5.29,
+        "prior_sgpa_trend": 0.14,
+        "prior_backlogs": 1,
+        "prior_sem_attendance": 61.64,
         "fee_pending_ratio": 0.0,
         "fee_overdue_flag": 0,
-        "library_issues_count": 8,
+        "library_issues_count": 9,
         "credits_registered": 20,
-        "dept_CSE": 1,
+        "dept_CSE": 0,
         "dept_ECE": 0,
         "dept_EEE": 0,
-        "dept_IT": 0,
+        "dept_IT": 1,
         "dept_AIDS": 0,
         "dept_AIML": 0,
-        "original_prob": 0.425,
+        "original_prob": 0.9775,
     }
 
     service = RiskPredictorService.get_instance()
@@ -1270,7 +1272,7 @@ def add_student_page():
     errors: list[str] = []
 
     if request.method == "POST":
-        validate_csrf(request.form.get("csrf_token", ""))
+        validate_csrf()
 
         # --- Collect fields ---
         name = request.form.get("name", "").strip()
@@ -1318,6 +1320,24 @@ def add_student_page():
 
         if not address:
             errors.append("Address is required.")
+
+        if not errors:
+            # --- Duplicate prevention: same phone OR same email ---
+            data = get_store()
+            dup_phone = data.students[data.students["Phone_No"].astype(str).str.strip() == phone]
+            dup_email = data.students[data.students["Email"].astype(str).str.strip().str.lower() == email.lower()]
+            if not dup_phone.empty:
+                errors.append(
+                    f"A student with phone {phone} already exists "
+                    f"({dup_phone.iloc[0]['Enrollment_No']} – {dup_phone.iloc[0]['Name']}). "
+                    "Cannot add duplicate student."
+                )
+            if not dup_email.empty:
+                errors.append(
+                    f"A student with email {email} already exists "
+                    f"({dup_email.iloc[0]['Enrollment_No']} – {dup_email.iloc[0]['Name']}). "
+                    "Cannot add duplicate student."
+                )
 
         if not errors:
             # --- Generate new Enrollment_No ---

@@ -1,87 +1,42 @@
 {% extends "base.html" %}
 
-{% block title %}Academic Risk Warning | IFHE ERP{% endblock %}
-{% block page_title %}Academic Early Warning & Risk Analytics{% endblock %}
+{% block title %}At-Risk Students | IFHE ERP{% endblock %}
+{% block page_title %}AI Decision Support / At-Risk Radar{% endblock %}
 
 {% block content %}
 <div class="container-fluid p-0">
     <!-- Header -->
-    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-3">
         <div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-xxs">AI DECISION SUPPORT</span>
-                <span class="text-muted fs-xs">Model: Random Forest (300 Trees)</span>
-            </div>
-            <h4 class="fw-bold mb-1">Mid-Semester Academic Risk Radar</h4>
-            <p class="text-muted fs-xs mb-0">Advisory early-warning scores identifying students needing intervention before final external evaluations.</p>
+            <h5 class="fw-bold mb-1">At-Risk Student Radar</h5>
+            <p class="text-muted fs-xs mb-0">Students predicted to need academic intervention (Random Forest, 20 features)</p>
         </div>
-        <div class="d-flex gap-2">
-            <a href="{{ url_for('ml_performance_page') }}" class="btn btn-sm btn-outline-primary">
-                <i class="bi bi-graph-up-arrow me-1"></i> View Model Performance &amp; What-If
-            </a>
-        </div>
+        <a href="{{ url_for('ml_performance_page') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-sliders me-1"></i> What-If Simulator
+        </a>
     </div>
 
-    <!-- Risk Summary Metric Cards -->
+    <!-- Summary Cards — clean, 3 cards only -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="card border-0 shadow-xs p-3 border-start border-danger border-4">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="text-muted fs-xs fw-semibold">High Risk Cohort</span>
-                    <i class="bi bi-shield-fill-x text-danger"></i>
-                </div>
-                <h3 class="fw-bold text-danger mb-0">{{ risk_summary.high_count }}</h3>
-                <small class="text-muted">Probability &gt; 66% · Urgent intervention</small>
+                <span class="text-muted fs-xs fw-semibold">At-Risk Students</span>
+                <h3 class="fw-bold text-danger mb-0">{{ risk_summary.predicted_at_risk }}</h3>
+                <small class="text-muted">of {{ risk_summary.total }} total students</small>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="card border-0 shadow-xs p-3 border-start border-warning border-4">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="text-muted fs-xs fw-semibold">Medium Risk Cohort</span>
-                    <i class="bi bi-shield-fill-exclamation text-warning"></i>
-                </div>
+                <span class="text-muted fs-xs fw-semibold">Need Monitoring</span>
                 <h3 class="fw-bold text-warning mb-0">{{ risk_summary.med_count }}</h3>
-                <small class="text-muted">Probability 33%–66% · Monitor closely</small>
+                <small class="text-muted">Medium risk band</small>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-4">
             <div class="card border-0 shadow-xs p-3 border-start border-success border-4">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="text-muted fs-xs fw-semibold">Low Risk / Healthy</span>
-                    <i class="bi bi-shield-fill-check text-success"></i>
-                </div>
+                <span class="text-muted fs-xs fw-semibold">On Track</span>
                 <h3 class="fw-bold text-success mb-0">{{ risk_summary.low_count }}</h3>
-                <small class="text-muted">Probability &lt; 33% · Normal progress</small>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-xs p-3 border-start border-primary border-4">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                    <span class="text-muted fs-xs fw-semibold">Predicted At-Risk Total</span>
-                    <i class="bi bi-bullseye text-primary"></i>
-                </div>
-                <h3 class="fw-bold text-primary mb-0">{{ risk_summary.predicted_at_risk }}</h3>
-                <small class="text-muted">At tuned recall threshold (≥ 80%)</small>
-            </div>
-        </div>
-    </div>
-
-    <!-- Department Heatmap / Counts -->
-    <div class="card border-0 shadow-xs mb-4">
-        <div class="card-header bg-white py-3 border-0">
-            <h6 class="fw-bold mb-0">Departmental Risk Distribution</h6>
-        </div>
-        <div class="card-body p-3 pt-0">
-            <div class="row g-2">
-                {% for dept, count in dept_risk_counts.items() %}
-                <div class="col-md-2 col-6">
-                    <div class="p-2 border rounded bg-light text-center">
-                        <div class="fw-bold fs-xs text-muted">{{ dept }}</div>
-                        <div class="fs-5 fw-bold text-danger">{{ count }}</div>
-                        <div class="fs-xxs text-muted">Flagged At-Risk</div>
-                    </div>
-                </div>
-                {% endfor %}
+                <small class="text-muted">Low risk — no action needed</small>
             </div>
         </div>
     </div>
@@ -104,7 +59,7 @@
                 <div class="col-md-2">
                     <select name="band" class="form-select form-select-sm" onchange="this.form.submit()">
                         <option value="">All Risk Bands</option>
-                        <option value="High" {% if selected_band == 'High' %}selected{% endif %}>High Risk Only</option>
+                        <option value="High" {% if selected_band == 'High' %}selected{% endif %}>High Risk</option>
                         <option value="Medium" {% if selected_band == 'Medium' %}selected{% endif %}>Medium Risk</option>
                         <option value="Low" {% if selected_band == 'Low' %}selected{% endif %}>Low Risk</option>
                     </select>
@@ -119,7 +74,7 @@
         </div>
     </div>
 
-    <!-- Student Risk Roster Table -->
+    <!-- Student Risk Table — simplified columns -->
     <div class="card border-0 shadow-xs">
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0 fs-xs">
@@ -128,9 +83,8 @@
                         <th class="ps-3">Student</th>
                         <th>Department</th>
                         <th>Risk Score</th>
-                        <th>Classification</th>
-                        <th>Student Persona</th>
-                        <th>Primary Risk Factors (Explainability)</th>
+                        <th>Status</th>
+                        <th>Key Risk Factors</th>
                         <th class="text-end pe-3">Action</th>
                     </tr>
                 </thead>
@@ -163,9 +117,6 @@
                             {% endif %}
                         </td>
                         <td>
-                            <span class="badge bg-light text-muted border fs-xxs">{{ item.Persona }}</span>
-                        </td>
-                        <td>
                             <ul class="list-unstyled mb-0 fs-xxs text-muted">
                                 {% for r in item.Top_Reasons %}
                                     <li><i class="bi bi-dot text-danger"></i>{{ r }}</li>
@@ -174,13 +125,13 @@
                         </td>
                         <td class="text-end pe-3">
                             <a href="{{ url_for('student_profile', enrollment_no=item.Enrollment_No) }}" class="btn btn-xs btn-outline-primary">
-                                View 360° Profile
+                                View Profile
                             </a>
                         </td>
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="7" class="text-center py-4 text-muted">No students matching the current risk criteria.</td>
+                        <td colspan="6" class="text-center py-4 text-muted">No students matching the current criteria.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -189,4 +140,3 @@
     </div>
 </div>
 {% endblock %}
-

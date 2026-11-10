@@ -1,6 +1,27 @@
-flask>=3.0.0
+# =============================================================================
+#  ERP Data Warehouse & Decision Support System — Python Dependencies
+#  ICFAI Foundation for Higher Education (IFHE), Hyderabad
+# =============================================================================
+#
+#  Install:  pip install -r requirements.txt
+#  Python :  3.9+  (tested with 3.11)
+# =============================================================================
+
+# --- Web Framework ---
+Flask>=3.0.0
+Jinja2>=3.1.0
+Werkzeug>=3.0.0
+itsdangerous>=2.1.0
+click>=8.0.0
+MarkupSafe>=2.1.0
+
+# --- Data Processing ---
 pandas>=2.0.0
 numpy>=1.24.0
+
+# --- Machine Learning ---
 scikit-learn>=1.3.0
 joblib>=1.3.0
+
+# --- Database (optional — only needed for MySQL mode) ---
 mysql-connector-python>=8.0.0

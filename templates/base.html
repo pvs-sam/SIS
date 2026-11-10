@@ -125,7 +125,7 @@
                         {% if session.get('user', {}).get('role') != 'FACULTY' %}
                         <li class="nav-item">
                             <a class="nav-link {% if active_page == 'ml_performance' %}active{% endif %}" href="{{ url_for('ml_performance_page') }}">
-                                <i class="bi bi-cpu"></i> ML Diagnostics &amp; What-If
+                                <i class="bi bi-cpu"></i> What-If Simulator
                             </a>
                         </li>
                         {% endif %}

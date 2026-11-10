@@ -49,13 +49,13 @@
                     <tbody>
                         {% for row in dept_stats %}
                             <tr>
-                                <td class="fw-semibold text-dark">{{ row.department }}</td>
-                                <td class="text-center font-monospace">{{ row.count }}</td>
-                                <td class="text-center font-monospace text-success fw-bold">{{ row.avg_attendance }}%</td>
-                                <td class="text-center font-monospace text-primary fw-bold">{{ row.avg_cgpa }}</td>
-                                <td class="text-end font-monospace">₹{{ row.total_fees }}</td>
-                                <td class="text-end font-monospace text-success fw-bold">₹{{ row.paid_fees }}</td>
-                                <td class="text-end font-monospace text-danger fw-bold">₹{{ row.pending_fees }}</td>
+                                <td class="fw-semibold text-dark">{{ row.Department }}</td>
+                                <td class="text-center font-monospace">{{ row.Students }}</td>
+                                <td class="text-center font-monospace text-success fw-bold">{{ row.Average_Attendance }}%</td>
+                                <td class="text-center font-monospace text-primary fw-bold">{{ row.Average_CGPA }}</td>
+                                <td class="text-end font-monospace">₹{{ "{:,}".format(row.Total_Fees) }}</td>
+                                <td class="text-end font-monospace text-success fw-bold">₹{{ "{:,}".format(row.Paid_Amount) }}</td>
+                                <td class="text-end font-monospace text-danger fw-bold">₹{{ "{:,}".format(row.Pending_Amount) }}</td>
                             </tr>
                         {% endfor %}
                     </tbody>

@@ -85,12 +85,31 @@ class RiskPredictorService:
                 return {"simulated_prob": 0.5, "risk_band": "Medium", "delta": 0.0}
 
         row = base_features.copy()
-        row["overall_attendance_pct"] = float(np.clip(row.get("overall_attendance_pct", 75.0) + attendance_delta, 0.0, 100.0))
-        row["internal_marks_avg_pct"] = float(np.clip(row.get("internal_marks_avg_pct", 65.0) + internal_delta, 0.0, 100.0))
 
-        # Re-derive subjects below 75 if attendance increased significantly
-        if attendance_delta > 5.0 and row.get("subjects_below_75", 0) > 0:
-            row["subjects_below_75"] = max(0, int(row["subjects_below_75"] - 1))
+        # --- Update ALL attendance-related features consistently ---
+        new_att = float(np.clip(row.get("overall_attendance_pct", 75.0) + attendance_delta, 0.0, 100.0))
+        row["overall_attendance_pct"] = new_att
+        # min_subject_attendance moves proportionally with overall attendance
+        row["min_subject_attendance"] = float(np.clip(
+            row.get("min_subject_attendance", 65.0) + attendance_delta, 0.0, 100.0
+        ))
+        # Re-derive subjects_below_75 based on new attendance level
+        if new_att >= 80.0:
+            row["subjects_below_75"] = 0
+        elif new_att >= 75.0:
+            row["subjects_below_75"] = max(0, int(row.get("subjects_below_75", 0)) - 3)
+        elif attendance_delta > 0:
+            reduction = max(1, int(attendance_delta / 5))
+            row["subjects_below_75"] = max(0, int(row.get("subjects_below_75", 0)) - reduction)
+
+        # --- Update ALL internal-marks-related features consistently ---
+        row["internal_marks_avg_pct"] = float(np.clip(
+            row.get("internal_marks_avg_pct", 65.0) + internal_delta, 0.0, 100.0
+        ))
+        # min_internal also improves proportionally
+        row["internal_marks_min_pct"] = float(np.clip(
+            row.get("internal_marks_min_pct", 50.0) + internal_delta, 0.0, 100.0
+        ))
 
         df_input = pd.DataFrame([row])[FEATURE_COLUMNS]
         sim_prob = float(self.model.predict_proba(df_input)[0, 1])
