@@ -237,13 +237,36 @@ erp-datawarehouse-design/
 5. DATASET DESCRIPTION
 ================================================================================
 
-All data is SYNTHETIC — generated with fixed random seeds for reproducibility.
-Distributions are statistically realistic to mimic a real institution.
+DATASET ORIGIN & ETL PIPELINE:
+
+  Step 1 — Base Dataset (Original Source):
+    The project began with a publicly available college student dataset:
+    https://github.com/Dhanushpandi26/College-Student-Analysis/blob/main/College_Student_Analysis_Dataset.csv
+
+  Step 2 — ETL & Synthetic Expansion:
+    The original dataset was used as a structural and statistical reference.
+    An ETL (Extract, Transform, Load) pipeline was designed to:
+      - Clean and standardise column formats and naming conventions
+      - Extend the dataset to 1,000 students across 6 departments
+      - Generate synthetic but statistically realistic records using
+        seeded random distributions (NumPy, random_state=42)
+      - Add institutional fields: Enrollment_No, Section, Fees,
+        Multi-semester history (Sem 1–4), Library transactions, Notices
+      - Apply referential integrity checks (all foreign keys validated)
+      - Export validated ETL output to: erp_semester5_etl_package/
+
+  Step 3 — Final Dataset:
+    The final dataset powering this system is fully synthetic and
+    reproducible. All distributions are seeded for consistency.
 
 DATASET LOCATION:
-  - Local path   : data/              (included in project submission)
-  - ETL package  : erp_semester5_etl_package/
-  - Dataset link : https://github.com/pvssamhita/erp-datawarehouse-design/tree/main/data
+  - Project repository : https://github.com/pvs-sam/SIS.git
+  - Local path         : data/              (included in project submission)
+  - ETL package        : erp_semester5_etl_package/
+  - Final dataset link : https://github.com/pvs-sam/SIS/tree/main/data
+
+NOTE: The dataset is included in the submission ZIP. No external download
+is required to run the project.
 
 STUDENTS (1,000 records):
   - 6 Departments: CSE (167), ECE (167), EEE (167), IT (167), AIDS (166), AIML (166)
@@ -297,7 +320,7 @@ PREREQUISITES:
 
 STEP 1: Clone or extract the project
 
-  git clone <repository-url>
+  git clone https://github.com/pvs-sam/SIS.git
   cd erp-datawarehouse-design
 
   OR extract the submitted ZIP file and navigate to the project folder.
